@@ -10,8 +10,10 @@ st.title("🦷 Skycad Lab Manager")
 # 2. 데이터 연결
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    r_df = conn.read(worksheet="Reference", ttl=0, header=None).astype(str)
-    r_df = r_df.apply(lambda x: x.str.strip())
+    # 레퍼런스 데이터
+    ref_df = conn.read(worksheet="Reference", ttl=0, header=None).astype(str)
+    ref_df = ref_df.apply(lambda x: x.str.strip())
+    # 메인 데이터 (변수명을 m_df로 통일)
     m_df = conn.read(ttl=0)
 
     cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 
@@ -22,7 +24,7 @@ try:
         if c not in m_df.columns:
             m_df[c] = 0 if c in ['Price', 'Qty', 'Total'] else ""
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"연결 오류: {e}")
     st.stop()
 
 # 저장 후 초기화 함수
@@ -37,21 +39,20 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("새 케이스 등록")
     
-    # 세션 상태로 기본값 관리
     c1, c2, c3 = st.columns(3)
     with c1:
         case_no = st.text_input("Case # *", key="in_case")
         patient = st.text_input("Patient *", key="in_p")
     with c2:
-        raw_c = r_df.iloc[:, 1].unique()
+        raw_c = ref_df.iloc[:, 1].unique()
         cl_list = sorted([c for c in raw_c if c and c != 'nan' and c != 'Clinic'])
         sel_cl = st.selectbox("Clinic *", ["선택"] + cl_list + ["➕직접"], key="in_cl")
         f_cl = st.text_input("클리닉명", key="in_cl_d") if sel_cl == "➕직접" else sel_cl
     with c3:
         doc_opts = ["선택", "➕직접"]
         if sel_cl not in ["선택", "➕직접"]:
-            m_doc = r_df[r_df.iloc[:, 1] == sel_cl].iloc[:, 2].unique()
-            doc_opts += sorted([d for d in m_doc if d and d != 'nan'])
+            matched_doc = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[:, 2].unique()
+            doc_opts += sorted([d for d in matched_doc if d and d != 'nan'])
         sel_doc = st.selectbox("Doctor", doc_opts, key="in_doc")
         f_doc = st.text_input("의사명", key="in_doc_d") if sel_doc == "➕직접" else sel_doc
 
@@ -70,31 +71,27 @@ with t1:
             comp_d = st.date_input("완료일", datetime.now()+timedelta(1), key="in_cd")
         with d3:
             due_v = st.date_input("마감일(Due)", datetime.now()+timedelta(7), key="due_input")
-            # [핵심] 날짜 강제 연동 키
             ship_d = st.date_input("출고일", value=due_v - timedelta(2), key=f"sd_{due_v}")
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], key="in_stat")
 
-    # [복구] 하단 체크리스트, 사진, 메모 섹션
     with st.expander("✅ 체크리스트 & 📸 사진 & 📝 메모", expanded=True):
-        # 레퍼런스 시트에서 체크리스트 옵션 추출
-        opts = sorted(list(set([i for i in r_df.iloc[:, 3:].values.flatten() if i and i != 'nan'])))
+        opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and i != 'nan'])))
         chks = st.multiselect("체크리스트 선택", opts, key="in_chk")
-        # 사진 업로드 칸
-        img = st.file_uploader("📸 사진 업로드 (JPG, PNG)", type=['jpg','png','jpeg'], key="in_img")
-        memo = st.text_input("추가 메모 (예: 60% 작업 등)", key="in_memo")
+        img = st.file_uploader("📸 사진 업로드", type=['jpg','png','jpeg'], key="in_img")
+        memo = st.text_input("추가 메모", key="in_memo")
 
     # 단가 계산
     p_u = 180
     if sel_cl not in ["선택", "➕직접"]:
         try:
-            p_val = r_df[r_df.iloc[:, 1] == sel_cl].iloc[0, 3]
+            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
             p_u = int(float(p_val))
         except: p_u = 180
     st.info(f"💰 현재 단가: ${p_u} | 합계: ${p_u * qty}")
 
     if st.button("🚀 최종 저장", use_container_width=True):
         if not case_no or f_cl == "선택" or not patient:
-            st.error("⚠️ 필수 항목(Case#, Clinic, Patient)을 입력해주세요!")
+            st.error("⚠️ 필수 항목을 입력해주세요!")
         else:
             final_note = ", ".join(chks) + (f" | {memo}" if memo else "")
             row = pd.DataFrame([{
@@ -107,15 +104,16 @@ with t1:
                 "Status": stat, "Notes": final_note
             }])
             try:
-                conn.update(data=pd.concat([main_df, row], ignore_index=True))
+                # [수정 완료] main_df를 m_df로 교체함
+                conn.update(data=pd.concat([m_df, row], ignore_index=True))
                 st.cache_data.clear()
-                st.success("✅ 저장 성공! 입력창을 초기화합니다.")
-                reset_all() # 페이지 새로고침 및 비우기
+                st.success("✅ 저장 성공!")
+                reset_all()
             except Exception as e: st.error(f"저장 실패: {e}")
 
 # --- [TAB 2: 정산] ---
 with t2:
-    st.subheader("📊 이번 달 정산 리스트 (출고일 기준)")
+    st.subheader("📊 이번 달 정산 리스트")
     if not m_df.empty:
         pdf = m_df.copy()
         pdf['s_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
@@ -123,10 +121,7 @@ with t2:
         m_data = pdf[(pdf['s_dt'].dt.month == this_m) & (pdf['s_dt'].dt.year == this_y)]
         
         if not m_data.empty:
-            st.write("✅ 전체 리스트:")
             st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
-            
-            # 수당 계산 logic
             c_norm = (m_data['Status'] == 'Normal')
             c_60 = (m_data['Notes'].str.contains('60%', na=False))
             pay_d = m_data[c_norm | c_60]
