@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. 페이지 설정
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="centered")
@@ -31,7 +31,6 @@ with tab1:
     col1, col2 = st.columns(2)
     
     with col1:
-        # Case # 입력 (안내 문구만 띄우고 빈칸으로 시작)
         case_no = st.text_input("A: Case #", placeholder="번호 입력", key="case_input")
         
         # 중복 체크
@@ -44,35 +43,22 @@ with tab1:
         raw_clinics = ref_df.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
         clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
-        
         selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts, key="clinic_select")
-        
-        # 직접 입력 시 백스페이스 필요 없게 수정
-        final_clinic = ""
-        if selected_clinic_pick == "➕ 새 클리닉 직접 입력":
-            final_clinic = st.text_input("클리닉 이름을 입력하세요", placeholder="여기에 바로 타이핑하세요", key="new_clinic_input")
-        else:
-            final_clinic = selected_clinic_pick
+        final_clinic = st.text_input("클리닉 이름을 입력하세요", placeholder="타이핑하세요", key="new_clinic_input") if selected_clinic_pick == "➕ 새 클리닉 직접 입력" else selected_clinic_pick
 
         # 닥터 선택
         doctor_options = ["선택하세요"]
         if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
             matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[:, 2].unique().tolist()
             doctor_options += sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none', 'doctor']])
-        
         doctor_options.append("➕ 새 의사 직접 입력")
         selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_options, key="doctor_select")
-        
-        # 직접 입력 시 백스페이스 필요 없게 수정
-        final_doctor = ""
-        if selected_doctor_pick == "➕ 새 의사 직접 입력":
-            final_doctor = st.text_input("의사 이름을 입력하세요", placeholder="이름을 바로 입력하세요", key="new_doctor_input")
-        else:
-            final_doctor = selected_doctor_pick
+        final_doctor = st.text_input("의사 이름을 입력하세요", placeholder="타이핑하세요", key="new_doctor_input") if selected_doctor_pick == "➕ 새 의사 직접 입력" else selected_doctor_pick
 
         patient = st.text_input("D: Patient Name", placeholder="환자 성함", key="patient_input")
 
     with col2:
+        # 접수일 (기본: 3D 모델)
         is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True, key="is_3d_model")
         if is_3d_model:
             receipt_date_str = "-"
@@ -80,8 +66,19 @@ with tab1:
             receipt_date = st.date_input("📅 Receipt Date (접수일)", datetime.now())
             receipt_date_str = receipt_date.strftime('%Y-%m-%d')
 
+        # --- 날짜 입력 지능화 로직 ---
+        # 1. 완료일 (작업 완료한 오늘 날짜 기본)
         completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now())
-        due_date = st.date_input("🚨 Due Date (마감일)", datetime.now())
+        
+        # 2. 마감일 (클리닉 요청 기한) - 보통 7일 뒤를 기본값으로 제안
+        due_date = st.date_input("🚨 Due Date (마감일)", datetime.now() + timedelta(days=7))
+        
+        # 3. 출고일 (마감일 기준 2일 전 자동 계산)
+        # 사장님 요청: 마감일에서 2일을 뺀 날짜가 기본값으로 설정됨
+        auto_shipping_date = due_date - timedelta(days=2)
+        shipping_date = st.date_input("🚚 Shipping Date (출고일)", auto_shipping_date)
+        
+        st.divider()
         
         selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True)
         selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"])
@@ -101,15 +98,16 @@ with tab1:
                 "Arch": selected_arch,
                 "Material": selected_material,
                 "Receipt Date": receipt_date_str,
-                "Due Date": due_date.strftime('%Y-%m-%d'),
                 "Completed Date": completed_date.strftime('%Y-%m-%d'),
+                "Shipping Date": shipping_date.strftime('%Y-%m-%d'),
+                "Due Date": due_date.strftime('%Y-%m-%d'),
                 "Status": selected_status,
                 "Notes": notes
             }])
             try:
                 updated_df = pd.concat([main_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
-                st.success(f"🎉 {patient}님 저장 성공!")
+                st.success(f"🎉 {patient}님 저장 성공! (출고일: {shipping_date.strftime('%Y-%m-%d')})")
                 st.balloons()
                 st.rerun()
             except Exception as e:
