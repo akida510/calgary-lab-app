@@ -6,7 +6,7 @@ from datetime import datetime
 # --- 페이지 설정 ---
 st.set_page_config(page_title="Calgary Lab Manager", layout="centered")
 
-# --- 보안 키 줄바꿈 보정 (폰 작업 필수) ---
+# --- 보안 키 줄바꿈 보정 ---
 if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
     raw_key = st.secrets["connections"]["gsheets"]["private_key"]
     if "\\n" in raw_key:
@@ -16,16 +16,14 @@ if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    @st.cache_data(ttl=2) # 즉각적인 반영을 위해 캐시를 거의 없앴습니다.
+    @st.cache_data(ttl=2)
     def load_data():
-        # 시트를 읽어온 후 모든 텍스트의 공백을 제거하고 문자로 변환합니다.
         main_df = conn.read(ttl=0)
+        # Reference 시트를 읽을 때 제목줄 없이(header=None) 데이터만 가져오게 설정 시도
         ref_df = conn.read(worksheet="Reference", ttl=0)
-        ref_df = ref_df.astype(str).apply(lambda x: x.str.strip())
         return main_df, ref_df
 
     df, ref_df = load_data()
-
 except Exception as e:
     st.error(f"⚠️ 연결 오류: {e}")
     st.stop()
@@ -38,28 +36,30 @@ with tab1:
     st.subheader("새로운 케이스 정보 입력")
     
     if not ref_df.empty:
-        # --- 열 번호로 강제 지정 (제목 이름이 달라도 작동함) ---
-        # 0: Deliver, 1: Clinic, 2: Doctor, 3: Arch, 4: Material
+        # --- [중요] 시트의 데이터 정제 ---
+        # 모든 데이터를 문자열로 바꾸고 양쪽 공백을 제거
+        ref_temp = ref_df.astype(str).apply(lambda x: x.str.strip())
         
-        # 1. 클리닉 목록 (1번 열)
-        clinics = sorted([c for c in ref_df.iloc[:, 1].unique() if c and c != 'nan' and c != 'None' and c != 'Clinic'])
+        # B열(Clinic) 추출: 'nan', 'None', 'Clinic', 'Deliver' 등 쓰레기 데이터 제거
+        all_clinics = ref_temp.iloc[:, 1].unique().tolist()
+        clean_clinics = sorted([c for c in all_clinics if c and c not in ['nan', 'None', 'Clinic', 'Deliver', ''] High])
         
-        with st.form(key="final_fix_form"):
+        with st.form(key="super_final_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 case_no = st.text_input("A: Case #")
-                # 클리닉 선택
-                selected_clinic = st.selectbox("B: Clinic 선택", options=["선택하세요"] + clinics)
+                selected_clinic = st.selectbox("B: Clinic 선택", options=["선택하세요"] + clean_clinics)
                 
-                # --- 닥터 필터링 (열 번호 방식) ---
+                # --- 닥터 필터링 (가장 강력한 조건) ---
                 if selected_clinic != "선택하세요":
-                    # 1번 열이 선택한 클리닉인 행을 찾아서, 그 행의 2번 열(닥터)을 가져옴
-                    matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic].iloc[:, 2].unique().tolist()
-                    doctor_options = sorted([d for d in matched_docs if d and d != 'nan' and d != 'None' and d != 'Doctor'])
+                    # B열이 선택된 클리닉인 행을 모두 찾아서 C열(닥터) 값을 가져옴
+                    matched_rows = ref_temp[ref_temp.iloc[:, 1] == selected_clinic]
+                    docs = matched_rows.iloc[:, 2].unique().tolist()
+                    doctor_options = sorted([d for d in docs if d and d not in ['nan', 'None', 'Doctor', '']])
                     
                     if not doctor_options:
-                        doctor_options = ["등록된 의사 없음"]
+                        doctor_options = ["의사 정보 없음"]
                 else:
                     doctor_options = ["클리닉을 먼저 선택하세요"]
                 
@@ -69,23 +69,19 @@ with tab1:
             with col2:
                 date_completed = st.date_input("G: Date Completed", datetime.now())
                 
-                # 3번 열에서 Arch 옵션 추출
-                arch_opts = sorted([a for a in ref_df.iloc[:, 3].unique() if a and a != 'nan' and a != 'None' and a != 'Arch'])
+                # D열(Arch)과 E열(Material) 옵션 자동 추출
+                arch_opts = sorted([a for a in ref_temp.iloc[:, 3].unique() if a and a not in ['nan', 'None', 'Arch', '']])
                 selected_arch = st.radio("Arch", options=arch_opts if arch_opts else ["Max", "Mand"], horizontal=True)
                 
-                # 4번 열에서 Material 옵션 추출
-                mat_opts = sorted([m for m in ref_df.iloc[:, 4].unique() if m and m != 'nan' and m != 'None' and m != 'Material'])
-                selected_material = st.selectbox("Material", options=mat_opts if mat_opts else ["Thermo", "Dual", "Soft"])
+                mat_opts = sorted([m for m in ref_temp.iloc[:, 4].unique() if m and m not in ['nan', 'None', 'Material', '']])
+                selected_material = st.selectbox("Material", options=mat_opts if mat_opts else ["Thermo", "Dual"])
             
             notes = st.text_area("F: Check List")
             
-            submit_btn = st.form_submit_button("✅ 구글 시트에 저장", use_container_width=True)
-            
-            if submit_btn:
+            if st.form_submit_button("✅ 구글 시트에 저장", use_container_width=True):
                 if selected_clinic == "선택하세요" or not patient or "선택하세요" in str(selected_doctor):
-                    st.warning("필수 항목(클리닉, 닥터, 환자이름)을 모두 입력하세요.")
+                    st.warning("필수 항목을 모두 입력하세요.")
                 else:
-                    # 메인 시트에 저장할 데이터
                     new_entry = pd.DataFrame([{
                         "Case #": case_no,
                         "Clinic": selected_clinic,
@@ -96,13 +92,12 @@ with tab1:
                         "Date": date_completed.strftime('%Y-%m-%d'),
                         "Notes": notes
                     }])
-                    
                     try:
-                        updated_main = pd.concat([df, new_entry], ignore_index=True)
-                        conn.update(data=updated_main)
+                        updated_df = pd.concat([df, new_entry], ignore_index=True)
+                        conn.update(data=updated_df)
                         st.success(f"🎉 {patient}님 저장 성공!")
                         st.cache_data.clear()
                     except Exception as e:
                         st.error(f"저장 실패: {e}")
 
-# (정산 및 검색 탭 생략 - 위 등록 기능이 성공하면 추가해 드릴게요)
+# (정산/검색 탭은 위 로직이 성공하면 완성해 드릴게요!)
