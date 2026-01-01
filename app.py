@@ -3,89 +3,67 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# --- 앱 설정 ---
 st.set_page_config(page_title="Calgary Lab Manager", layout="centered")
 
 # 구글 시트 연결
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1t8Nt3jEZliThpKNwgUBXBxnVPJXoUzwQ1lGIAnoqhxk/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 데이터 로드 및 정제 함수 ---
+# --- 데이터 로드 함수 (참조시트 포함) ---
 @st.cache_data(ttl=60)
-def load_data():
-    try:
-        raw_df = conn.read(spreadsheet=SHEET_URL)
-        if raw_df is None or raw_df.empty:
-            return pd.DataFrame()
-        
-        # G열(인덱스 6) 복사본 생성 및 날짜 변환
-        # 변환 불가능한 값은 NaT(빈 날짜)로 만듭니다.
-        raw_df['date_cleaned'] = pd.to_datetime(raw_df.iloc[:, 6], errors='coerce')
-        return raw_df
-    except Exception as e:
-        st.error(f"데이터 로드 실패: {e}")
-        return pd.DataFrame()
+def get_all_data():
+    # 메인 데이터와 참조시트를 각각 로드
+    main_df = conn.read(spreadsheet=SHEET_URL)
+    # worksheet 이름이 '참조시트'인 것을 가져옵니다.
+    ref_df = conn.read(spreadsheet=SHEET_URL, worksheet="참조시트")
+    
+    # 메인 데이터 날짜 정제
+    main_df['date_cleaned'] = pd.to_datetime(main_df.iloc[:, 6], errors='coerce')
+    return main_df, ref_df
 
-df = load_data()
+df, ref_df = get_all_data()
 
-st.title("🦷 Calgary Lab Manager")
-
+# --- 입력 폼 로직 ---
 tab1, tab2, tab3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
 with tab1:
     st.subheader("새 케이스 추가")
-    with st.form(key="input_form_v3", clear_on_submit=True):
+    
+    # 1. 참조시트에서 데이터 추출 (컬럼명은 시트에 맞게 수정 가능)
+    # 클리닉명 리스트 (중복 제거)
+    clinics = sorted(ref_df['클리닉명'].dropna().unique().tolist())
+    
+    with st.form(key="smart_input_form"):
         col1, col2 = st.columns(2)
         with col1:
             case_no = st.text_input("A: 케이스 번호")
-            clinic = st.text_input("C: 클리닉 이름")
+            
+            # 클리닉 선택 (검색 기능 포함)
+            selected_clinic = st.selectbox("C: 클리닉 선택", options=["선택하세요"] + clinics)
+            
+            # 2. 닥터 필터링 로직
+            if selected_clinic != "선택하세요":
+                # 해당 클리닉 의사 + 소속 없는 의사
+                relevant_docs = ref_df[
+                    (ref_df['클리닉명'] == selected_clinic) | 
+                    (ref_df['클리닉명'].isna()) | 
+                    (ref_df['클리닉명'] == "")
+                ]['의사명'].dropna().unique().tolist()
+            else:
+                relevant_docs = []
+
+            selected_doctor = st.selectbox("D: 닥터 선택", options=relevant_docs)
             patient = st.text_input("E: 환자 이름")
+            
         with col2:
             date_g = st.date_input("G: 작업 완료일", datetime.now())
-            material = st.selectbox("K: 재질", ["Thermo", "Dual", "Soft", "Other"])
+            # 참조시트에 재질 리스트가 있다면 그것도 불러올 수 있습니다.
+            materials = ref_df['재질'].dropna().unique().tolist() if '재질' in ref_df.columns else ["Thermo", "Dual", "Soft"]
+            material = st.selectbox("K: 재질", options=materials)
             arch = st.radio("J: 상/하악", ["Upper", "Lower"], horizontal=True)
         
         note = st.text_area("L: 특이사항")
         
-        if st.form_submit_button("✅ 저장하기", use_container_width=True):
-            st.warning("현재는 조회 모드입니다. 저장 기능은 API 설정 후 활성화됩니다.")
-
-with tab2:
-    st.subheader(f"📊 {datetime.now().month}월 수당 리포트")
-    
-    if not df.empty and 'date_cleaned' in df.columns:
-        # 날짜가 성공적으로 변환된 데이터만 사용
-        valid_df = df.dropna(subset=['date_cleaned']).copy()
-        
-        curr_month = datetime.now().month
-        curr_year = datetime.now().year
-        
-        # 월/년 필터링 (에러 방지를 위해 .dt 접근 전 데이터 확인)
-        this_month_df = valid_df[
-            (valid_df['date_cleaned'].dt.month == curr_month) & 
-            (valid_df['date_cleaned'].dt.year == curr_year)
-        ]
-        
-        count = len(this_month_df)
-        extra = max(0, count - 320)
-        gross = extra * 30
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("이번 달 완료", f"{count}개")
-        c2.metric("오버 수량", f"{extra}개")
-        c3.metric("세전 수당", f"${gross:,.0f}")
-        
-        st.progress(min(count / 320, 1.0))
-        # 주요 컬럼만 표시 (A, C, E, G열)
-        st.dataframe(this_month_df.iloc[:, [0, 2, 4, 6]], use_container_width=True)
-    else:
-        st.info("정산할 데이터가 없거나 G열의 날짜 형식을 확인해야 합니다.")
-
-with tab3:
-    st.subheader("🔍 환자 검색")
-    search = st.text_input("환자 이름 입력")
-    if search and not df.empty:
-        # E열(인덱스 4)에서 검색
-        res = df[df.iloc[:, 4].astype(str).str.contains(search, na=False, case=False)]
-        st.dataframe(res.iloc[:, [0, 2, 4, 6]])
-        
+        if st.form_submit_button("✅ 저장하기"):
+            # 구글 시트에 업데이트 하는 부분은 사장님이 준비되시면 추가하겠습니다!
+            st.success(f"{selected_clinic} / {selected_doctor} / {patient} 저장 완료(시뮬레이션)")
