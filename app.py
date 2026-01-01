@@ -10,11 +10,8 @@ st.title("🦷 Skycad Lab Night Guard Manager")
 # 2. 데이터 연결 및 로드
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    # Reference 시트 (클리닉/의사/단가 정보)
     ref_df = conn.read(worksheet="Reference", ttl=0, header=None).astype(str)
     ref_df = ref_df.apply(lambda x: x.str.strip())
-    
-    # 메인 데이터 시트
     main_df = conn.read(ttl=0)
 
     # 필수 컬럼 설정
@@ -47,7 +44,7 @@ with tab1:
         with c2:
             raw_clinics = ref_df.iloc[:, 1].unique().tolist()
             clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic']])
-            clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
+            clinic_opts = ["선택하세요", "➕ 새 클리닉 직접 입력"] + clean_clinics
             
             selected_clinic_pick = st.selectbox("B: Clinic 선택 *", options=clinic_opts, key="clinic_select")
             
@@ -58,12 +55,11 @@ with tab1:
                 final_clinic = selected_clinic_pick
 
         with c3:
-            doctor_opts = ["선택하세요"]
+            doctor_opts = ["선택하세요", "➕ 새 의사 직접 입력"]
             if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
                 matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[:, 2].unique().tolist()
                 doctor_opts += sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none']])
             
-            doctor_opts.append("➕ 새 의사 직접 입력")
             selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_opts, key="doctor_select")
             
             final_doctor = ""
@@ -72,7 +68,7 @@ with tab1:
             else:
                 final_doctor = selected_doctor_pick
 
-    # 2️⃣ 작업 상세 및 날짜 연동 구역 (st.form을 쓰지 않아야 날짜 실시간 연동이 가능)
+    # 2️⃣ 작업 상세 및 날짜 연동 구역
     with st.expander("2️⃣ 작업 상세 및 날짜 연동", expanded=True):
         d1, d2, d3 = st.columns(3)
         with d1:
@@ -82,25 +78,4 @@ with tab1:
         
         with d2:
             is_3d_model = st.checkbox("3D 모델 (접수일/시간 없음)", value=True, key="is_3d_check")
-            if not is_3d_model:
-                r_date = st.date_input("📅 접수일 (석고용)", datetime.now(), key="r_date_val")
-                r_time = st.time_input("⏰ 시간 (석고용)", datetime.strptime("10:00", "%H:%M").time(), key="r_time_val")
-                receipt_date_str = f"{r_date.strftime('%Y-%m-%d')} {r_time.strftime('%H:%M')}"
-            else:
-                receipt_date_str = "-"
-            
-            comp_date = st.date_input("✅ 완료일 (기본:내일)", datetime.now() + timedelta(days=1), key="comp_date_val")
-        
-        with d3:
-            # [알렉스 요청사항] 마감일을 선택하면 출고일이 자동으로 2일 전으로!
-            due_date = st.date_input("🚨 마감일 (Due Date)", datetime.now() + timedelta(days=7), key="due_date_val")
-            
-            # 마감일로부터 2일 전 계산
-            auto_shipping_date = due_date - timedelta(days=2)
-            shipping_date = st.date_input("🚚 출고일 (마감 2일전 자동계산)", value=auto_shipping_date, key="ship_date_val")
-            
-            selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"], key="status_select")
-
-    # 단가 및 체크리스트
-    unit_price = 180
-    if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉
+            if not is_3
