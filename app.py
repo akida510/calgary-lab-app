@@ -27,13 +27,14 @@ try:
         main_df['Price'] = pd.to_numeric(main_df['Price'], errors='coerce').fillna(0)
         main_df['Qty'] = pd.to_numeric(main_df['Qty'], errors='coerce').fillna(0)
         main_df['Total'] = pd.to_numeric(main_df['Total'], errors='coerce').fillna(0)
-        main_df['Completed Date'] = pd.to_datetime(main_df['Completed Date'], errors='coerce')
+        # 날짜 형식 변환 (정산용)
+        main_df['Shipping Date'] = pd.to_datetime(main_df['Shipping Date'], errors='coerce')
 
 except Exception as e:
     st.error(f"데이터 연결 중 오류: {e}")
     st.stop()
 
-# --- [추가] 모든 입력창 초기화 함수 ---
+# 모든 입력창 초기화 함수
 def clear_form():
     st.session_state["case_id"] = ""
     st.session_state["p_name"] = ""
@@ -44,7 +45,6 @@ def clear_form():
     st.session_state["p_qty"] = 1
     st.session_state["memo"] = ""
     st.session_state["checks"] = []
-    # 사진은 보안상 브라우저가 직접 비워야 하므로 수동 선택 필요
     st.toast("모든 입력창을 비웠습니다!")
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "💰 수당 정산", "🔍 환자 검색"])
@@ -94,7 +94,6 @@ with tab1:
             shipping_date = st.date_input("🚚 출고일", due_date - timedelta(days=2), key="shipping_date")
             selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"], key="p_status")
 
-    # 단가 및 합계
     current_price = 180 
     if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
         try:
@@ -115,13 +114,10 @@ with tab1:
         selected_checks = st.multiselect("📋 체크리스트 선택", options=checklist_options, key="checks")
         add_notes = st.text_input("추가 메모 (60% 작업 등)", key="memo")
         uploaded_file = st.file_uploader("📸 사진 첨부", type=['jpg', 'jpeg', 'png'], key="photo_upload")
-        if uploaded_file:
-            st.image(uploaded_file, caption="미리보기", width=200)
 
-    # --- 저장 및 강제 초기화 버튼 ---
     if st.button("🚀 구글 시트에 최종 저장", use_container_width=True):
         if not final_clinic or not patient or final_clinic == "선택하세요":
-            st.error("⚠️ 클리닉 이름과 환자 성함은 꼭 입력해줘!")
+            st.error("⚠️ 클리닉 이름과 환자 성함은 필수야!")
         else:
             final_notes = ", ".join(selected_checks) + (f" | {add_notes}" if add_notes else "")
             new_row = pd.DataFrame([{
@@ -136,34 +132,41 @@ with tab1:
             try:
                 updated_df = pd.concat([main_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
-                
-                # 저장 성공 후 세션 상태 초기화
                 clear_form() 
-                
                 st.success(f"✅ {patient}님 케이스 저장 완료!")
                 st.balloons()
                 st.cache_data.clear()
-                st.rerun() # 페이지 리로딩으로 빈 화면 노출
-                
+                st.rerun()
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-# (TAB 2, 3 로직은 이전과 동일)
+# --- [TAB 2: 수당 정산] ---
 with tab2:
-    st.subheader("💵 이번 달 수당 요약")
-    valid_df = main_df.dropna(subset=['Completed Date'])
+    st.subheader("💵 이번 달 수당 요약 (출고일 기준)")
+    # [수정] 출고일(Shipping Date) 데이터가 있는 것들만 필터링
+    valid_df = main_df.dropna(subset=['Shipping Date'])
     if not valid_df.empty:
         now = datetime.now()
-        this_month_df = valid_df[pd.to_datetime(valid_df['Completed Date']).dt.month == now.month]
+        # [수정] 출고일 기준으로 이번 달 데이터 추출
+        this_month_df = valid_df[pd.to_datetime(valid_df['Shipping Date']).dt.month == now.month]
+        
         is_normal = (this_month_df['Status'] == 'Normal')
         is_60_cancel = (this_month_df['Status'] == 'Canceled') & (this_month_df['Notes'].str.contains('60%', na=False))
+        
         pay_df = this_month_df[is_normal | is_60_cancel]
         t_qty = int(pay_df['Qty'].sum())
+        
         c1, c2 = st.columns(2)
-        c1.metric("이번 달 작업량", f"{t_qty} 개")
+        c1.metric("이번 달 출고량", f"{t_qty} 개")
         c2.metric("세후 수당 합계", f"${t_qty * 19.505333:,.2f}")
-        st.dataframe(pay_df[['Completed Date', 'Clinic', 'Patient', 'Status', 'Notes']], use_container_width=True)
+        
+        st.write("---")
+        st.write(f"📅 {now.month}월 출고 상세 내역")
+        st.dataframe(pay_df[['Shipping Date', 'Clinic', 'Patient', 'Status', 'Notes']], use_container_width=True)
+    else:
+        st.info("이번 달 출고 기록이 없어.")
 
+# --- [TAB 3: 환자 검색] ---
 with tab3:
     st.subheader("🔍 통합 검색")
     search_q = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
