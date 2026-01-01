@@ -83,7 +83,6 @@ with tab1:
         
         # 완료일 기본값: 내일
         completed_date = st.date_input("✅ 완료일", datetime.now() + timedelta(days=1))
-        
         due_date = st.date_input("🚨 마감일", datetime.now() + timedelta(days=7))
         shipping_date = st.date_input("🚚 출고일", due_date - timedelta(days=2))
         
@@ -96,15 +95,17 @@ with tab1:
         
         selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"])
 
-    # --- 체크리스트 (Reference D열 또는 E열 이후 데이터 로드) ---
+    # --- 체크리스트 (Reference 열 데이터 로드) ---
     st.write("---")
     st.markdown("### 📋 체크리스트 및 메모")
     checklist_pool = []
-    # 레퍼런스 시트의 4번째 열(인덱스 3) 이후의 모든 데이터를 체크리스트 후보로 가져옴
+    # 레퍼런스 시트의 4번째 열(인덱스 3)부터 모든 유효 텍스트 추출
     for col in range(3, ref_df.shape[1]):
         items = ref_df.iloc[:, col].unique().tolist()
         checklist_pool.extend(items)
-    checklist_options = sorted(list(set([i for i in checklist_pool if i and i.lower() not in ['nan', 'none', 'price', ''] High])))
+    
+    # [수정 완료] SyntaxError 해결: 불필요한 'High' 삭제 및 괄호 정렬
+    checklist_options = sorted(list(set([i for i in checklist_pool if i and i.lower() not in ['nan', 'none', 'price', '']])))
 
     selected_checks = st.multiselect("체크리스트 선택 (자동완성)", options=checklist_options)
     add_notes = st.text_input("추가 메모 / 리메이크 사유", placeholder="특이사항이나 '60%' 등 입력")
@@ -145,11 +146,11 @@ with tab1:
             try:
                 updated_df = pd.concat([main_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
-                st.success(f"🎉 {patient}님 데이터가 성공적으로 저장되었습니다!")
+                st.success(f"🎉 {patient}님 데이터 저장 성공!")
                 st.balloons()
                 st.rerun()
             except Exception as e:
-                st.error(f"저장 오류가 발생했습니다: {e}")
+                st.error(f"저장 오류 발생: {e}")
 
 # --- 수당 정산 탭 ---
 with tab2:
@@ -157,12 +158,13 @@ with tab2:
     valid_df = main_df.dropna(subset=['Completed Date'])
     if not valid_df.empty:
         now = datetime.now()
-        this_month = valid_df[valid_df['Completed Date'].dt.month == now.month]
+        # 데이터가 Datetime 형식인지 확인 후 필터링
+        this_month_df = valid_df[pd.to_datetime(valid_df['Completed Date']).dt.month == now.month]
         
-        is_normal = (this_month['Status'] == 'Normal')
-        is_60_cancel = (this_month['Status'] == 'Canceled') & (this_month['Notes'].str.contains('60%', na=False))
+        is_normal = (this_month_df['Status'] == 'Normal')
+        is_60_cancel = (this_month_df['Status'] == 'Canceled') & (this_month_df['Notes'].str.contains('60%', na=False))
         
-        pay_df = this_month[is_normal | is_60_cancel]
+        pay_df = this_month_df[is_normal | is_60_cancel]
         total_qty = int(pay_df['Qty'].sum())
         post_tax_total = total_qty * 19.505333
         
@@ -178,5 +180,5 @@ with tab3:
     st.subheader("🔍 환자 검색")
     search_q = st.text_input("환자 이름 또는 Case # 입력")
     if search_q:
-        search_res = main_df[main_df['Patient'].str.contains(search_q, na=False) | main_df['Case #'].astype(str).str.contains(search_q)]
+        search_res = main_df[main_df['Patient'].str.contains(search_q, na=False, case=False) | main_df['Case #'].astype(str).str.contains(search_q)]
         st.dataframe(search_res)
