@@ -23,14 +23,6 @@ except Exception as e:
     st.error(f"연결 오류: {e}")
     st.stop()
 
-# --- 저장 후 초기화를 위한 함수 ---
-def reset_form():
-    st.session_state["case_input"] = ""
-    st.session_state["clinic_select"] = "선택하세요"
-    st.session_state["doctor_select"] = "클리닉을 먼저 선택하세요"
-    st.session_state["patient_input"] = ""
-    st.session_state["notes_input"] = ""
-
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "💰 수당 정산", "🔍 환자 검색"])
 
 with tab1:
@@ -40,6 +32,13 @@ with tab1:
     
     with col1:
         case_no = st.text_input("A: Case #", key="case_input")
+        
+        # --- [추가] 중복 케이스 체크 로직 ---
+        if case_no and not main_df.empty:
+            # 시트의 'Case #' 컬럼에서 현재 입력한 번호가 있는지 확인
+            is_duplicate = main_df[main_df['Case #'].astype(str) == case_no]
+            if not is_duplicate.empty:
+                st.warning(f"⚠️ 경고: 케이스 번호 {case_no}번은 이미 등록되어 있습니다. (중복 작업인 경우 진행하세요)")
         
         raw_clinics = ref_df.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
@@ -82,9 +81,10 @@ with tab1:
             try:
                 updated_df = pd.concat([main_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
-                st.success(f"🎉 {patient}님 저장 성공! 입력창이 초기화됩니다.")
+                st.success(f"🎉 {patient}님 저장 성공! 화면을 초기화합니다.")
                 st.balloons()
-                # 저장 성공 후 화면을 새로고침하여 입력창 비우기
-                st.rerun() 
+                st.rerun() # 저장 직후 화면을 새로고침하여 중복 클릭 원천 봉쇄
             except Exception as e:
                 st.error(f"저장 오류: {e}")
+
+# (이하 탭 기능은 동일)
