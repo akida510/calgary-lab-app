@@ -19,7 +19,7 @@ try:
     @st.cache_data(ttl=2)
     def load_data():
         main_df = conn.read(ttl=0)
-        # Reference 시트를 읽을 때 제목줄 없이(header=None) 데이터만 가져오게 설정 시도
+        # Reference 시트 로드
         ref_df = conn.read(worksheet="Reference", ttl=0)
         return main_df, ref_df
 
@@ -36,24 +36,23 @@ with tab1:
     st.subheader("새로운 케이스 정보 입력")
     
     if not ref_df.empty:
-        # --- [중요] 시트의 데이터 정제 ---
-        # 모든 데이터를 문자열로 바꾸고 양쪽 공백을 제거
+        # 데이터 전처리: 모든 값을 문자열로 바꾸고 공백 제거
         ref_temp = ref_df.astype(str).apply(lambda x: x.str.strip())
         
-        # B열(Clinic) 추출: 'nan', 'None', 'Clinic', 'Deliver' 등 쓰레기 데이터 제거
+        # B열(클리닉) 목록 추출 (제목이나 빈칸 제외)
         all_clinics = ref_temp.iloc[:, 1].unique().tolist()
-        clean_clinics = sorted([c for c in all_clinics if c and c not in ['nan', 'None', 'Clinic', 'Deliver', ''] High])
+        clean_clinics = sorted([c for c in all_clinics if c and c not in ['nan', 'None', 'Clinic', 'Deliver', '']])
         
-        with st.form(key="super_final_form"):
+        with st.form(key="final_v11_form"):
             col1, col2 = st.columns(2)
             
             with col1:
                 case_no = st.text_input("A: Case #")
                 selected_clinic = st.selectbox("B: Clinic 선택", options=["선택하세요"] + clean_clinics)
                 
-                # --- 닥터 필터링 (가장 강력한 조건) ---
+                # --- 닥터 필터링 로직 ---
                 if selected_clinic != "선택하세요":
-                    # B열이 선택된 클리닉인 행을 모두 찾아서 C열(닥터) 값을 가져옴
+                    # B열이 선택된 클리닉인 행들에서 C열(닥터) 값들을 가져옴
                     matched_rows = ref_temp[ref_temp.iloc[:, 1] == selected_clinic]
                     docs = matched_rows.iloc[:, 2].unique().tolist()
                     doctor_options = sorted([d for d in docs if d and d not in ['nan', 'None', 'Doctor', '']])
@@ -93,11 +92,10 @@ with tab1:
                         "Notes": notes
                     }])
                     try:
+                        # 메인 시트 업데이트
                         updated_df = pd.concat([df, new_entry], ignore_index=True)
                         conn.update(data=updated_df)
                         st.success(f"🎉 {patient}님 저장 성공!")
                         st.cache_data.clear()
                     except Exception as e:
                         st.error(f"저장 실패: {e}")
-
-# (정산/검색 탭은 위 로직이 성공하면 완성해 드릴게요!)
