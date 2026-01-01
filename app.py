@@ -33,19 +33,15 @@ with tab1:
     with col1:
         case_no = st.text_input("A: Case #", key="case_input")
         
-        # --- 클리닉 선택 & 직접 입력 ---
+        # 클리닉 선택 & 직접 입력
         raw_clinics = ref_df.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
         clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
         
         selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts, key="clinic_select")
-        
-        if selected_clinic_pick == "➕ 새 클리닉 직접 입력":
-            final_clinic = st.text_input("클리닉 이름을 입력하세요", key="new_clinic_input")
-        else:
-            final_clinic = selected_clinic_pick
+        final_clinic = st.text_input("클리닉 이름을 입력하세요", key="new_clinic_input") if selected_clinic_pick == "➕ 새 클리닉 직접 입력" else selected_clinic_pick
 
-        # --- 닥터 선택 & 직접 입력 ---
+        # 닥터 선택 & 직접 입력
         doctor_options = ["선택하세요"]
         if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
             matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[:, 2].unique().tolist()
@@ -53,17 +49,14 @@ with tab1:
         
         doctor_options.append("➕ 새 의사 직접 입력")
         selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_options, key="doctor_select")
-        
-        if selected_doctor_pick == "➕ 새 의사 직접 입력":
-            final_doctor = st.text_input("의사 이름을 입력하세요", key="new_doctor_input")
-        else:
-            final_doctor = selected_doctor_pick
+        final_doctor = st.text_input("의사 이름을 입력하세요", key="new_doctor_input") if selected_doctor_pick == "➕ 새 의사 직접 입력" else selected_doctor_pick
 
         patient = st.text_input("D: Patient Name", key="patient_input")
 
     with col2:
-        # --- 접수일 (3D 모델 대응) ---
-        is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=False)
+        # --- 접수일 설정: 3D 모델(접수일 없음)을 기본값(True)으로 설정 ---
+        is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True, key="is_3d_model")
+        
         if is_3d_model:
             receipt_date_str = "-"
             st.info("접수일이 '-'로 기록됩니다.")
@@ -91,7 +84,7 @@ with tab1:
                 "Patient": patient,
                 "Arch": selected_arch,
                 "Material": selected_material,
-                "Receipt Date": receipt_date_str, # '-' 또는 날짜 저장
+                "Receipt Date": receipt_date_str,
                 "Due Date": due_date.strftime('%Y-%m-%d'),
                 "Completed Date": completed_date.strftime('%Y-%m-%d'),
                 "Status": selected_status,
@@ -105,5 +98,3 @@ with tab1:
                 st.rerun()
             except Exception as e:
                 st.error(f"저장 오류: {e}")
-
-# 검색 탭 등 나머지 코드 동일
