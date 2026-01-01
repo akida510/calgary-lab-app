@@ -85,9 +85,3 @@ with tab1:
                 st.balloons()
             except Exception as e:
                 st.error(f"저장 중 오류: {e}")
-
-with tab2:
-    st.info("수당 정산 화면입니다.")
-
-with tab3:
-    st.info("환자 검색 화면입니다.")
