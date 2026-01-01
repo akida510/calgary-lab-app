@@ -15,11 +15,8 @@ if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
 # --- 구글 시트 연결 ---
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
-    
-    # 실시간 데이터 로드
     main_df = conn.read(ttl=0)
     ref_df = conn.read(worksheet="Reference", ttl=0)
-    
 except Exception as e:
     st.error(f"⚠️ 연결 오류: {e}")
     st.stop()
@@ -32,21 +29,21 @@ with tab1:
     st.subheader("새로운 케이스 정보 입력")
     
     if not ref_df.empty:
-        # 모든 데이터 공백 제거 및 문자열 변환
+        # 데이터 전처리
         ref_temp = ref_df.astype(str).apply(lambda x: x.str.strip())
         
-        # B열(Clinic) 유효 데이터 추출
+        # B열(Clinic) 목록
         all_clinics = ref_temp.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in all_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver', '']])
         
-        with st.form(key="form_v13", clear_on_submit=True):
+        with st.form(key="form_v14", clear_on_submit=True):
             col1, col2 = st.columns(2)
             
             with col1:
                 case_no = st.text_input("A: Case #")
                 selected_clinic = st.selectbox("B: Clinic 선택", options=["선택하세요"] + clean_clinics)
                 
-                # 닥터 필터링 (B열과 선택값 매칭)
+                # 닥터 필터링
                 if selected_clinic != "선택하세요":
                     matched_docs = ref_temp[ref_temp.iloc[:, 1] == selected_clinic].iloc[:, 2].unique().tolist()
                     doctor_options = sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none', 'doctor', '']])
@@ -61,11 +58,10 @@ with tab1:
             with col2:
                 date_completed = st.date_input("G: Date Completed", datetime.now())
                 
-                # Arch(D열) 옵션
+                # Arch(D열)와 Material(E열) 옵션
                 arch_opts = sorted([a for a in ref_temp.iloc[:, 3].unique() if a and a.lower() not in ['nan', 'none', 'arch', '']])
                 selected_arch = st.radio("Arch", options=arch_opts if arch_opts else ["Max", "Mand"], horizontal=True)
                 
-                # Material(E열) 옵션
                 mat_opts = sorted([m for m in ref_temp.iloc[:, 4].unique() if m and m.lower() not in ['nan', 'none', 'material', '']])
                 selected_material = st.selectbox("Material", options=mat_opts if mat_opts else ["Thermo", "Dual"])
             
@@ -88,3 +84,16 @@ with tab1:
                     
                     try:
                         updated_main = pd.concat([main_df, new_entry], ignore_index=True)
+                        conn.update(data=updated_main)
+                        st.success(f"🎉 {patient}님 저장 성공!")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"저장 중 오류 발생: {e}")
+    else:
+        st.warning("Reference 시트 데이터를 불러올 수 없습니다.")
+
+with tab2:
+    st.info("수당 정산 탭은 데이터가 쌓인 후 활성화됩니다.")
+
+with tab3:
+    st.info("환자 검색 탭입니다.")
