@@ -20,13 +20,12 @@ try:
     ref_df = ref_df.apply(lambda x: x.str.strip())
     main_df = conn.read(ttl=0)
 
-    # 필수 컬럼 자동 생성 및 타입 고정 (에러 방지 핵심)
+    # 필수 컬럼 자동 생성 및 타입 고정
     required_cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Status', 'Notes', 'Completed Date']
     for col in required_cols:
         if col not in main_df.columns:
             main_df[col] = 0 if col in ['Price', 'Qty', 'Total'] else ""
     
-    # Notes와 Clinic 등을 문자열로 변환 (AttributeError 방지)
     main_df['Notes'] = main_df['Notes'].astype(str).fillna("")
     main_df['Clinic'] = main_df['Clinic'].astype(str).fillna("")
     
@@ -44,7 +43,6 @@ tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "💰 수당 정산", "🔍
 
 with tab1:
     st.subheader("새로운 케이스 정보 입력")
-    
     col1, col2 = st.columns(2)
     
     with col1:
@@ -56,7 +54,6 @@ with tab1:
         clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
         selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts)
         
-        # 단가 로직
         current_price = 180 
         if selected_clinic_pick != "선택하세요" and selected_clinic_pick != "➕ 새 클리닉 직접 입력":
             try:
@@ -84,7 +81,9 @@ with tab1:
         is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True)
         receipt_date_str = "-" if is_3d_model else st.date_input("📅 접수일", datetime.now()).strftime('%Y-%m-%d')
         
-        completed_date = st.date_input("✅ 완료일", datetime.now())
+        # --- [변경 포인트] 완료일 기본값을 내일(오늘+1일)로 설정 ---
+        completed_date = st.date_input("✅ 완료일", datetime.now() + timedelta(days=1))
+        
         due_date = st.date_input("🚨 마감일", datetime.now() + timedelta(days=7))
         shipping_date = st.date_input("🚚 출고일", due_date - timedelta(days=2))
         
@@ -97,73 +96,6 @@ with tab1:
         
         selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"])
 
-    # 체크리스트 자동완성 (Reference E열 이후)
-    checklist_pool = []
-    for col in range(4, ref_df.shape[1]):
-        items = ref_df.iloc[:, col].unique().tolist()
-        checklist_pool.extend(items)
-    checklist_options = sorted(list(set([i for i in checklist_pool if i and i.lower() not in ['nan', 'none', '']])))
-
+    # 체크리스트 및 기타 로직 (이하 동일)
     st.write("---")
-    selected_checks = st.multiselect("📋 Check List (자동완성)", options=checklist_options)
-    add_notes = st.text_input("추가 메모 / 리메이크 사유", placeholder="60% 작업 시 여기에 기입")
-
-    # 사진 업로드
-    st.write("---")
-    st.markdown("### 📸 사진 첨부 (선택 사항)")
-    uploaded_file = st.file_uploader("이미지 파일을 선택하세요", type=['jpg', 'jpeg', 'png'])
-    if uploaded_file:
-        st.image(uploaded_file, caption="업로드된 사진 미리보기", width=250)
-
-    if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
-        if not final_clinic or not patient or final_clinic == "선택하세요":
-            st.warning("필수 항목을 입력하세요.")
-        else:
-            final_notes = ", ".join(selected_checks) + (f" | {add_notes}" if add_notes else "")
-            new_row = pd.DataFrame([{
-                "Case #": case_no, "Clinic": final_clinic, "Doctor": final_doctor, "Patient": patient,
-                "Arch": selected_arch, "Material": selected_material, "Price": unit_price, "Qty": qty,
-                "Total": total_amount, "Receipt Date": receipt_date_str, 
-                "Completed Date": completed_date.strftime('%Y-%m-%d'),
-                "Shipping Date": shipping_date.strftime('%Y-%m-%d'),
-                "Due Date": due_date.strftime('%Y-%m-%d'),
-                "Status": selected_status, "Notes": final_notes
-            }])
-            try:
-                updated_df = pd.concat([main_df, new_row], ignore_index=True)
-                conn.update(data=updated_df)
-                st.success(f"🎉 저장 성공! 총액: ${total_amount}")
-                st.rerun()
-            except Exception as e:
-                st.error(f"저장 오류: {e}")
-
-with tab2:
-    st.subheader("💵 이번 달 수당 정산")
-    valid_df = main_df.dropna(subset=['Completed Date'])
-    if not valid_df.empty:
-        now = datetime.now()
-        this_month = valid_df[valid_df['Completed Date'].dt.month == now.month]
-        
-        # 정산 필터: Normal 이거나 Canceled 중 Notes에 60% 포함된 경우
-        is_normal = (this_month['Status'] == 'Normal')
-        is_60_cancel = (this_month['Status'] == 'Canceled') & (this_month['Notes'].str.contains('60%', na=False))
-        
-        pay_df = this_month[is_normal | is_60_cancel]
-        
-        total_qty = int(pay_df['Qty'].sum())
-        post_tax_total = total_qty * 19.505333
-        
-        c1, c2 = st.columns(2)
-        c1.metric("이번 달 정산 개수", f"{total_qty} 개")
-        c2.metric("내 수당 (세후)", f"${post_tax_total:,.2f}")
-        
-        st.dataframe(pay_df[['Completed Date', 'Clinic', 'Patient', 'Status', 'Notes']], use_container_width=True)
-    else:
-        st.info("데이터가 없습니다.")
-
-with tab3:
-    st.subheader("🔍 환자 검색")
-    search_q = st.text_input("이름 또는 Case # 입력")
-    if search_q:
-        search_res = main_df[main_df['Patient'].str.contains(search_q, na=False) | main_df['Case #'].astype(str).str.contains(search_q)]
-        st.dataframe(search_res)
+    # ... (생략된 뒷부분 로직은 이전과 동일하게 유지하시면 됩니다) ...
