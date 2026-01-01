@@ -50,7 +50,7 @@ with t1:
             sel_doc = st.selectbox("Doctor", doc_list, key="v_doc")
             f_doc = st.text_input("의사명", key="v_doc_d") if sel_doc == "➕ 직접" else sel_doc
 
-    with st.expander("2️⃣ 상세 및 날짜 (출고일 자동연동)", expanded=True):
+    with st.expander("2️⃣ 상세 및 날짜", expanded=True):
         d1, d2, d3 = st.columns(3)
         with d1:
             arch = st.radio("Arch", ["Max", "Mand"], horizontal=True, key="v_arch")
@@ -59,74 +59,12 @@ with t1:
         with d2:
             is_3d = st.checkbox("3D 모델", value=True, key="v_3d")
             r_str = "-"
-            if not is_3d:
+            if is_3d == False:
                 r_d = st.date_input("접수일", datetime.now(), key="v_rd")
                 r_t = st.time_input("시간", datetime.now(), key="v_rt")
                 r_str = f"{r_d} {r_t.strftime('%H:%M')}"
             c_d = st.date_input("완료일", datetime.now()+timedelta(days=1), key="v_cd")
         with d3:
-            # 알렉스 요청: 마감일 선택 시 출고일 자동 2일 전
-            due_d = st.date_input("마감일(Due)", datetime.now()+timedelta(days=7), key="v_due")
-            ship_d = st.date_input("출고일(Ship)", due_d - timedelta(days=2), key="v_sd")
-            stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], key="v_st")
-
-    # 단가
-    u_p = 180
-    if sel_cl not in ["선택", "➕ 직접"]:
-        try:
-            u_p = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
-        except: u_p = 180
-    st.info(f"💰 단가: ${u_p} | 합계: ${u_p * qty}")
-
-    with st.expander("3️⃣ 체크리스트 & 사진 & 메모", expanded=True):
-        opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and i.lower() not in ['nan', 'none', '']])))
-        checks = st.multiselect("체크리스트", opts, key="v_chk")
-        # [복구] 사진 입력창
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg','png','jpeg'], key="v_img")
-        memo = st.text_input("메모 (예: 60% 작업)", key="v_memo")
-
-    if st.button("🚀 최종 저장", use_container_width=True):
-        if not case_no or f_cl == "선택" or not patient:
-            st.error("⚠️ 필수 항목을 입력해주세요!")
-        else:
-            note = ", ".join(checks) + (f" | {memo}" if memo else "")
-            row = pd.DataFrame([{"Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient, "Arch": arch, "Material": mat, "Price": u_p, "Qty": qty, "Total": u_p*qty, "Receipt Date": r_str, "Completed Date": c_d.strftime('%Y-%m-%d'), "Shipping Date": ship_d.strftime('%Y-%m-%d'), "Due Date": due_d.strftime('%Y-%m-%d'), "Status": stat, "Notes": note}])
-            try:
-                conn.update(data=pd.concat([main_df, row], ignore_index=True))
-                st.success("저장 완료!")
-                st.balloons()
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e: st.error(f"저장 실패: {e}")
-
-# --- [TAB 2: 정산 (출고일 기준)] ---
-with t2:
-    st.subheader("💵 이번 달 수당 요약")
-    if not main_df.empty:
-        # 출고일 기준 필터링
-        m_df = main_df.copy()
-        m_df['Shipping Date'] = pd.to_datetime(m_df['Shipping Date'], errors='coerce')
-        cur_m = datetime.now().month
-        this_m = m_df[m_df['Shipping Date'].dt.month == cur_m]
-        
-        # 정산 조건: Normal 상태 혹은 메모에 60%가 포함된 Canceled 상태
-        c1 = (this_m['Status'] == 'Normal')
-        c2 = (this_m['Status'] == 'Canceled') & (this_m['Notes'].str.contains('60%', na=False))
-        pay_df = this_m[c1 | c2]
-        
-        t_qty = int(pay_df['Qty'].sum())
-        col1, col2 = st.columns(2)
-        col1.metric("이번달 총 출고", f"{t_qty} 개")
-        col2.metric("예상 수당 (세후)", f"${t_qty * 19.505333:,.2f}")
-        
-        st.write("---")
-        st.write("📋 이번 달 정산 리스트")
-        st.dataframe(pay_df[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
-    else:
-        st.info("등록된 데이터가 없습니다.")
-
-# --- [TAB 3: 검색] ---
-with t3:
-    st.subheader("🔍 케이스 검색")
-    q = st.text_input("검색어 (환자명 또는 번호)", key="v_search")
-    if q
+            due_d = st.date_input("마감일", datetime.now()+timedelta(days=7), key="v_due")
+            # 마감일에서 2일 자동 차감
+            ship_d = st.date_input("출고일", due_d - timedelta(days=2), key="v_sd
