@@ -33,57 +33,65 @@ with tab1:
     with col1:
         case_no = st.text_input("A: Case #", key="case_input")
         
-        # 중복 체크
-        if case_no and not main_df.empty:
-            is_duplicate = main_df[main_df['Case #'].astype(str) == case_no]
-            if not is_duplicate.empty:
-                st.warning(f"⚠️ 경고: {case_no}번은 이미 등록된 번호입니다.")
-        
+        # --- 클리닉 선택 & 직접 입력 ---
         raw_clinics = ref_df.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
-        selected_clinic = st.selectbox("B: Clinic 선택", options=["선택하세요"] + clean_clinics, key="clinic_select")
+        clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
         
-        # --- 닥터 선택 로직 수정 ---
+        selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts, key="clinic_select")
+        
+        if selected_clinic_pick == "➕ 새 클리닉 직접 입력":
+            final_clinic = st.text_input("클리닉 이름을 입력하세요", key="new_clinic_input")
+        else:
+            final_clinic = selected_clinic_pick
+
+        # --- 닥터 선택 & 직접 입력 ---
         doctor_options = ["선택하세요"]
-        if selected_clinic != "선택하세요":
-            matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic].iloc[:, 2].unique().tolist()
+        if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
+            matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[:, 2].unique().tolist()
             doctor_options += sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none', 'doctor']])
         
-        doctor_options.append("➕ 새 의사 직접 입력") # 직접 입력 옵션 추가
-        
+        doctor_options.append("➕ 새 의사 직접 입력")
         selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_options, key="doctor_select")
         
-        # "새 의사 직접 입력"을 선택했을 때만 텍스트 입력창이 나타남
         if selected_doctor_pick == "➕ 새 의사 직접 입력":
             final_doctor = st.text_input("의사 이름을 입력하세요", key="new_doctor_input")
         else:
             final_doctor = selected_doctor_pick
 
         patient = st.text_input("D: Patient Name", key="patient_input")
-        receipt_date = st.date_input("📅 Receipt Date (접수일)", datetime.now(), key="receipt_date")
 
     with col2:
-        due_date = st.date_input("🚨 Due Date (마감일)", datetime.now(), key="due_date")
-        completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now(), key="completed_date")
-        selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True, key="arch_radio")
-        selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"], key="mat_select")
-        status_list = ["Normal", "Hold", "Canceled"]
-        selected_status = st.selectbox("📊 Status (상태)", options=status_list, key="status_select")
+        # --- 접수일 (3D 모델 대응) ---
+        is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=False)
+        if is_3d_model:
+            receipt_date_str = "-"
+            st.info("접수일이 '-'로 기록됩니다.")
+        else:
+            receipt_date = st.date_input("📅 Receipt Date (접수일)", datetime.now())
+            receipt_date_str = receipt_date.strftime('%Y-%m-%d')
+
+        due_date = st.date_input("🚨 Due Date (마감일)", datetime.now())
+        completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now())
+        
+        selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True)
+        selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"])
+        selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"])
 
     notes = st.text_area("F: Check List / 리메이크 사유", key="notes_input")
     
     if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
-        if selected_clinic == "선택하세요" or not patient or final_doctor in ["선택하세요", ""]:
+        if final_clinic in ["선택하세요", ""] or not patient or final_doctor in ["선택하세요", ""]:
             st.warning("필수 항목을 모두 입력해 주세요.")
         else:
             new_row = pd.DataFrame([{
                 "Case #": case_no,
-                "Clinic": selected_clinic,
-                "Doctor": final_doctor, # 선택했거나 직접 입력한 이름이 저장됨
+                "Clinic": final_clinic,
+                "Doctor": final_doctor,
                 "Patient": patient,
                 "Arch": selected_arch,
                 "Material": selected_material,
-                "Receipt Date": receipt_date.strftime('%Y-%m-%d'),
+                "Receipt Date": receipt_date_str, # '-' 또는 날짜 저장
                 "Due Date": due_date.strftime('%Y-%m-%d'),
                 "Completed Date": completed_date.strftime('%Y-%m-%d'),
                 "Status": selected_status,
@@ -98,4 +106,4 @@ with tab1:
             except Exception as e:
                 st.error(f"저장 오류: {e}")
 
-# (이하 생략)
+# 검색 탭 등 나머지 코드 동일
