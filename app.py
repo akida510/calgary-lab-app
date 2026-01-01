@@ -81,7 +81,7 @@ with tab1:
         is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True)
         receipt_date_str = "-" if is_3d_model else st.date_input("📅 접수일", datetime.now()).strftime('%Y-%m-%d')
         
-        # --- [변경 포인트] 완료일 기본값을 내일(오늘+1일)로 설정 ---
+        # 완료일 기본값: 내일
         completed_date = st.date_input("✅ 완료일", datetime.now() + timedelta(days=1))
         
         due_date = st.date_input("🚨 마감일", datetime.now() + timedelta(days=7))
@@ -96,6 +96,87 @@ with tab1:
         
         selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"])
 
-    # 체크리스트 및 기타 로직 (이하 동일)
+    # --- 체크리스트 (Reference D열 또는 E열 이후 데이터 로드) ---
     st.write("---")
-    # ... (생략된 뒷부분 로직은 이전과 동일하게 유지하시면 됩니다) ...
+    st.markdown("### 📋 체크리스트 및 메모")
+    checklist_pool = []
+    # 레퍼런스 시트의 4번째 열(인덱스 3) 이후의 모든 데이터를 체크리스트 후보로 가져옴
+    for col in range(3, ref_df.shape[1]):
+        items = ref_df.iloc[:, col].unique().tolist()
+        checklist_pool.extend(items)
+    checklist_options = sorted(list(set([i for i in checklist_pool if i and i.lower() not in ['nan', 'none', 'price', ''] High])))
+
+    selected_checks = st.multiselect("체크리스트 선택 (자동완성)", options=checklist_options)
+    add_notes = st.text_input("추가 메모 / 리메이크 사유", placeholder="특이사항이나 '60%' 등 입력")
+
+    # --- 사진 등록 ---
+    st.write("---")
+    st.markdown("### 📸 사진 첨부 (선택 사항)")
+    uploaded_file = st.file_uploader("이미지 파일을 선택하세요 (JPG, PNG)", type=['jpg', 'jpeg', 'png'])
+    if uploaded_file:
+        st.image(uploaded_file, caption="업로드 예정 사진 미리보기", width=250)
+
+    # --- 저장 버튼 ---
+    if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
+        if not final_clinic or not patient or final_clinic == "선택하세요":
+            st.warning("클리닉과 환자명은 필수 입력 항목입니다.")
+        else:
+            final_notes = ", ".join(selected_checks)
+            if add_notes:
+                final_notes += f" | {add_notes}"
+            
+            new_row = pd.DataFrame([{
+                "Case #": case_no,
+                "Clinic": final_clinic,
+                "Doctor": final_doctor,
+                "Patient": patient,
+                "Arch": selected_arch,
+                "Material": selected_material,
+                "Price": unit_price,
+                "Qty": qty,
+                "Total": total_amount,
+                "Receipt Date": receipt_date_str,
+                "Completed Date": completed_date.strftime('%Y-%m-%d'),
+                "Shipping Date": shipping_date.strftime('%Y-%m-%d'),
+                "Due Date": due_date.strftime('%Y-%m-%d'),
+                "Status": selected_status,
+                "Notes": final_notes
+            }])
+            try:
+                updated_df = pd.concat([main_df, new_row], ignore_index=True)
+                conn.update(data=updated_df)
+                st.success(f"🎉 {patient}님 데이터가 성공적으로 저장되었습니다!")
+                st.balloons()
+                st.rerun()
+            except Exception as e:
+                st.error(f"저장 오류가 발생했습니다: {e}")
+
+# --- 수당 정산 탭 ---
+with tab2:
+    st.subheader("💵 이번 달 수당 정산")
+    valid_df = main_df.dropna(subset=['Completed Date'])
+    if not valid_df.empty:
+        now = datetime.now()
+        this_month = valid_df[valid_df['Completed Date'].dt.month == now.month]
+        
+        is_normal = (this_month['Status'] == 'Normal')
+        is_60_cancel = (this_month['Status'] == 'Canceled') & (this_month['Notes'].str.contains('60%', na=False))
+        
+        pay_df = this_month[is_normal | is_60_cancel]
+        total_qty = int(pay_df['Qty'].sum())
+        post_tax_total = total_qty * 19.505333
+        
+        c1, c2 = st.columns(2)
+        c1.metric("이번 달 정산 개수", f"{total_qty} 개")
+        c2.metric("내 수당 (세후)", f"${post_tax_total:,.2f}")
+        st.dataframe(pay_df[['Completed Date', 'Clinic', 'Patient', 'Status', 'Notes']], use_container_width=True)
+    else:
+        st.info("정산할 데이터가 없습니다.")
+
+# --- 검색 탭 ---
+with tab3:
+    st.subheader("🔍 환자 검색")
+    search_q = st.text_input("환자 이름 또는 Case # 입력")
+    if search_q:
+        search_res = main_df[main_df['Patient'].str.contains(search_q, na=False) | main_df['Case #'].astype(str).str.contains(search_q)]
+        st.dataframe(search_res)
