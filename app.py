@@ -43,13 +43,22 @@ with tab1:
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
         selected_clinic = st.selectbox("B: Clinic 선택", options=["선택하세요"] + clean_clinics, key="clinic_select")
         
-        doctor_options = ["클리닉을 먼저 선택하세요"]
+        # --- 닥터 선택 로직 수정 ---
+        doctor_options = ["선택하세요"]
         if selected_clinic != "선택하세요":
             matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic].iloc[:, 2].unique().tolist()
-            doctor_options = sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none', 'doctor']])
-            if not doctor_options: doctor_options = ["등록된 의사 없음"]
+            doctor_options += sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none', 'doctor']])
         
-        selected_doctor = st.selectbox("C: Doctor 선택", options=doctor_options, key="doctor_select")
+        doctor_options.append("➕ 새 의사 직접 입력") # 직접 입력 옵션 추가
+        
+        selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_options, key="doctor_select")
+        
+        # "새 의사 직접 입력"을 선택했을 때만 텍스트 입력창이 나타남
+        if selected_doctor_pick == "➕ 새 의사 직접 입력":
+            final_doctor = st.text_input("의사 이름을 입력하세요", key="new_doctor_input")
+        else:
+            final_doctor = selected_doctor_pick
+
         patient = st.text_input("D: Patient Name", key="patient_input")
         receipt_date = st.date_input("📅 Receipt Date (접수일)", datetime.now(), key="receipt_date")
 
@@ -58,30 +67,26 @@ with tab1:
         completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now(), key="completed_date")
         selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True, key="arch_radio")
         selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"], key="mat_select")
-        
-        # --- [추가] 상태 선택 (Status) ---
-        # 기본은 Normal, 취소나 홀드 시 변경 가능
         status_list = ["Normal", "Hold", "Canceled"]
         selected_status = st.selectbox("📊 Status (상태)", options=status_list, key="status_select")
 
-    # 60% 작업 시 수당 포함을 위해 메모를 활용하도록 안내
-    notes = st.text_area("F: Check List / 리메이크 사유 (취소 시 '60% 작업완료' 등 기재)", key="notes_input")
+    notes = st.text_area("F: Check List / 리메이크 사유", key="notes_input")
     
     if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
-        if selected_clinic == "선택하세요" or not patient or "선택하세요" in str(selected_doctor):
+        if selected_clinic == "선택하세요" or not patient or final_doctor in ["선택하세요", ""]:
             st.warning("필수 항목을 모두 입력해 주세요.")
         else:
             new_row = pd.DataFrame([{
                 "Case #": case_no,
                 "Clinic": selected_clinic,
-                "Doctor": selected_doctor,
+                "Doctor": final_doctor, # 선택했거나 직접 입력한 이름이 저장됨
                 "Patient": patient,
                 "Arch": selected_arch,
                 "Material": selected_material,
                 "Receipt Date": receipt_date.strftime('%Y-%m-%d'),
                 "Due Date": due_date.strftime('%Y-%m-%d'),
                 "Completed Date": completed_date.strftime('%Y-%m-%d'),
-                "Status": selected_status, # 상태 저장
+                "Status": selected_status,
                 "Notes": notes
             }])
             try:
@@ -93,4 +98,4 @@ with tab1:
             except Exception as e:
                 st.error(f"저장 오류: {e}")
 
-# (이하 탭 기능 생략)
+# (이하 생략)
