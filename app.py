@@ -31,7 +31,8 @@ with tab1:
     col1, col2 = st.columns(2)
     
     with col1:
-        case_no = st.text_input("A: Case #", key="case_input")
+        # Case # 입력 (안내 문구만 띄우고 빈칸으로 시작)
+        case_no = st.text_input("A: Case #", placeholder="번호 입력", key="case_input")
         
         # 중복 체크
         if case_no and not main_df.empty:
@@ -45,7 +46,13 @@ with tab1:
         clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
         
         selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts, key="clinic_select")
-        final_clinic = st.text_input("클리닉 이름을 입력하세요", key="new_clinic_input") if selected_clinic_pick == "➕ 새 클리닉 직접 입력" else selected_clinic_pick
+        
+        # 직접 입력 시 백스페이스 필요 없게 수정
+        final_clinic = ""
+        if selected_clinic_pick == "➕ 새 클리닉 직접 입력":
+            final_clinic = st.text_input("클리닉 이름을 입력하세요", placeholder="여기에 바로 타이핑하세요", key="new_clinic_input")
+        else:
+            final_clinic = selected_clinic_pick
 
         # 닥터 선택
         doctor_options = ["선택하세요"]
@@ -55,12 +62,17 @@ with tab1:
         
         doctor_options.append("➕ 새 의사 직접 입력")
         selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_options, key="doctor_select")
-        final_doctor = st.text_input("의사 이름을 입력하세요", key="new_doctor_input") if selected_doctor_pick == "➕ 새 의사 직접 입력" else selected_doctor_pick
+        
+        # 직접 입력 시 백스페이스 필요 없게 수정
+        final_doctor = ""
+        if selected_doctor_pick == "➕ 새 의사 직접 입력":
+            final_doctor = st.text_input("의사 이름을 입력하세요", placeholder="이름을 바로 입력하세요", key="new_doctor_input")
+        else:
+            final_doctor = selected_doctor_pick
 
-        patient = st.text_input("D: Patient Name", key="patient_input")
+        patient = st.text_input("D: Patient Name", placeholder="환자 성함", key="patient_input")
 
     with col2:
-        # 접수일 (기본값: 3D 모델)
         is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True, key="is_3d_model")
         if is_3d_model:
             receipt_date_str = "-"
@@ -68,7 +80,6 @@ with tab1:
             receipt_date = st.date_input("📅 Receipt Date (접수일)", datetime.now())
             receipt_date_str = receipt_date.strftime('%Y-%m-%d')
 
-        # --- [순서 변경] 완료일을 마감일보다 위로 배치 ---
         completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now())
         due_date = st.date_input("🚨 Due Date (마감일)", datetime.now())
         
@@ -76,7 +87,7 @@ with tab1:
         selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"])
         selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"])
 
-    notes = st.text_area("F: Check List / 리메이크 사유", key="notes_input")
+    notes = st.text_area("F: Check List / 리메이크 사유", placeholder="특이사항 입력", key="notes_input")
     
     if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
         if final_clinic in ["선택하세요", ""] or not patient or final_doctor in ["선택하세요", ""]:
