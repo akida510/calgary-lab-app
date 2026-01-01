@@ -33,7 +33,13 @@ with tab1:
     with col1:
         case_no = st.text_input("A: Case #", key="case_input")
         
-        # 클리닉 선택 & 직접 입력
+        # 중복 체크
+        if case_no and not main_df.empty:
+            is_duplicate = main_df[main_df['Case #'].astype(str) == case_no]
+            if not is_duplicate.empty:
+                st.warning(f"⚠️ 경고: {case_no}번은 이미 등록된 번호입니다.")
+        
+        # 클리닉 선택
         raw_clinics = ref_df.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
         clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
@@ -41,7 +47,7 @@ with tab1:
         selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts, key="clinic_select")
         final_clinic = st.text_input("클리닉 이름을 입력하세요", key="new_clinic_input") if selected_clinic_pick == "➕ 새 클리닉 직접 입력" else selected_clinic_pick
 
-        # 닥터 선택 & 직접 입력
+        # 닥터 선택
         doctor_options = ["선택하세요"]
         if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
             matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[:, 2].unique().tolist()
@@ -54,18 +60,17 @@ with tab1:
         patient = st.text_input("D: Patient Name", key="patient_input")
 
     with col2:
-        # --- 접수일 설정: 3D 모델(접수일 없음)을 기본값(True)으로 설정 ---
+        # 접수일 (기본값: 3D 모델)
         is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True, key="is_3d_model")
-        
         if is_3d_model:
             receipt_date_str = "-"
-            st.info("접수일이 '-'로 기록됩니다.")
         else:
             receipt_date = st.date_input("📅 Receipt Date (접수일)", datetime.now())
             receipt_date_str = receipt_date.strftime('%Y-%m-%d')
 
-        due_date = st.date_input("🚨 Due Date (마감일)", datetime.now())
+        # --- [순서 변경] 완료일을 마감일보다 위로 배치 ---
         completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now())
+        due_date = st.date_input("🚨 Due Date (마감일)", datetime.now())
         
         selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True)
         selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"])
