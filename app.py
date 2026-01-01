@@ -17,16 +17,18 @@ if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     ref_df = conn.read(worksheet="Reference", ttl=0, header=None).astype(str)
+    ref_df = ref_df.apply(lambda x: x.str.strip())
     main_df = conn.read(ttl=0)
 
     # 필수 컬럼 자동 생성 및 타입 고정 (에러 방지 핵심)
-    required_cols = ['Price', 'Qty', 'Total', 'Status', 'Notes', 'Completed Date']
+    required_cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Status', 'Notes', 'Completed Date']
     for col in required_cols:
         if col not in main_df.columns:
             main_df[col] = 0 if col in ['Price', 'Qty', 'Total'] else ""
     
-    # [에러 해결!] Notes를 강제로 문자열(str)로 변환
+    # Notes와 Clinic 등을 문자열로 변환 (AttributeError 방지)
     main_df['Notes'] = main_df['Notes'].astype(str).fillna("")
+    main_df['Clinic'] = main_df['Clinic'].astype(str).fillna("")
     
     if not main_df.empty:
         main_df['Price'] = pd.to_numeric(main_df['Price'], errors='coerce').fillna(0)
@@ -42,45 +44,126 @@ tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "💰 수당 정산", "🔍
 
 with tab1:
     st.subheader("새로운 케이스 정보 입력")
-    # ... (기존 입력 코드 생략 - 사장님 기존 폼 그대로 사용) ...
     
-    # --- [추가] 사진 업로드 기능 ---
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        case_no = st.text_input("A: Case #", placeholder="번호 입력", key="case_input")
+        
+        # 클리닉 선택
+        raw_clinics = ref_df.iloc[:, 1].unique().tolist()
+        clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic']])
+        clinic_opts = ["선택하세요"] + clean_clinics + ["➕ 새 클리닉 직접 입력"]
+        selected_clinic_pick = st.selectbox("B: Clinic 선택", options=clinic_opts)
+        
+        # 단가 로직
+        current_price = 180 
+        if selected_clinic_pick != "선택하세요" and selected_clinic_pick != "➕ 새 클리닉 직접 입력":
+            try:
+                price_from_sheet = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[0, 3]
+                if price_from_sheet and price_from_sheet.lower() != 'nan':
+                    current_price = int(float(price_from_sheet))
+            except:
+                current_price = 180
+        
+        unit_price = st.number_input("💵 단가 수정/확인 ($)", value=current_price, step=5)
+        final_clinic = st.text_input("클리닉 직접 입력", placeholder="타이핑하세요") if selected_clinic_pick == "➕ 새 클리닉 직접 입력" else selected_clinic_pick
+
+        # 닥터 선택
+        doctor_options = ["선택하세요"]
+        if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
+            matched_docs = ref_df[ref_df.iloc[:, 1] == selected_clinic_pick].iloc[:, 2].unique().tolist()
+            doctor_options += sorted([d for d in matched_docs if d and d.lower() not in ['nan', 'none']])
+        doctor_options.append("➕ 새 의사 직접 입력")
+        selected_doctor_pick = st.selectbox("C: Doctor 선택", options=doctor_options)
+        final_doctor = st.text_input("의사 입력") if selected_doctor_pick == "➕ 새 의사 직접 입력" else selected_doctor_pick
+
+        patient = st.text_input("D: Patient Name", placeholder="환자 성함")
+
+    with col2:
+        is_3d_model = st.checkbox("3D 모델 (접수일 없음)", value=True)
+        receipt_date_str = "-" if is_3d_model else st.date_input("📅 접수일", datetime.now()).strftime('%Y-%m-%d')
+        
+        completed_date = st.date_input("✅ 완료일", datetime.now())
+        due_date = st.date_input("🚨 마감일", datetime.now() + timedelta(days=7))
+        shipping_date = st.date_input("🚚 출고일", due_date - timedelta(days=2))
+        
+        selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True)
+        selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"])
+        
+        qty = st.number_input("Qty (수량)", min_value=1, value=1)
+        total_amount = unit_price * qty
+        st.info(f"💡 이번 케이스 합계: ${total_amount}")
+        
+        selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"])
+
+    # 체크리스트 자동완성 (Reference E열 이후)
+    checklist_pool = []
+    for col in range(4, ref_df.shape[1]):
+        items = ref_df.iloc[:, col].unique().tolist()
+        checklist_pool.extend(items)
+    checklist_options = sorted(list(set([i for i in checklist_pool if i and i.lower() not in ['nan', 'none', '']])))
+
+    st.write("---")
+    selected_checks = st.multiselect("📋 Check List (자동완성)", options=checklist_options)
+    add_notes = st.text_input("추가 메모 / 리메이크 사유", placeholder="60% 작업 시 여기에 기입")
+
+    # 사진 업로드
     st.write("---")
     st.markdown("### 📸 사진 첨부 (선택 사항)")
-    uploaded_file = st.file_uploader("이미지 파일을 선택하세요 (용량 최소화 권장)", type=['jpg', 'jpeg', 'png'])
+    uploaded_file = st.file_uploader("이미지 파일을 선택하세요", type=['jpg', 'jpeg', 'png'])
     if uploaded_file:
-        st.image(uploaded_file, caption="업로드 예정 사진", width=200)
-        st.warning("⚠️ 현재 버전은 사진 경로 기록만 지원합니다. 실제 사진 저장을 위해서는 클라우드 설정이 필요할 수 있습니다.")
+        st.image(uploaded_file, caption="업로드된 사진 미리보기", width=250)
 
-    # (저장 버튼 클릭 시 로직은 기존과 동일하되, Notes 처리에 주의)
-    # ... (저장 로직 생략) ...
+    if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
+        if not final_clinic or not patient or final_clinic == "선택하세요":
+            st.warning("필수 항목을 입력하세요.")
+        else:
+            final_notes = ", ".join(selected_checks) + (f" | {add_notes}" if add_notes else "")
+            new_row = pd.DataFrame([{
+                "Case #": case_no, "Clinic": final_clinic, "Doctor": final_doctor, "Patient": patient,
+                "Arch": selected_arch, "Material": selected_material, "Price": unit_price, "Qty": qty,
+                "Total": total_amount, "Receipt Date": receipt_date_str, 
+                "Completed Date": completed_date.strftime('%Y-%m-%d'),
+                "Shipping Date": shipping_date.strftime('%Y-%m-%d'),
+                "Due Date": due_date.strftime('%Y-%m-%d'),
+                "Status": selected_status, "Notes": final_notes
+            }])
+            try:
+                updated_df = pd.concat([main_df, new_row], ignore_index=True)
+                conn.update(data=updated_df)
+                st.success(f"🎉 저장 성공! 총액: ${total_amount}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"저장 오류: {e}")
 
 with tab2:
     st.subheader("💵 이번 달 수당 정산")
-    
-    # 에러 방지용 필터링
     valid_df = main_df.dropna(subset=['Completed Date'])
     if not valid_df.empty:
         now = datetime.now()
         this_month = valid_df[valid_df['Completed Date'].dt.month == now.month]
         
-        # [에러 수정 포인트] .str.contains 사용 전 다시 한번 타입 체크
+        # 정산 필터: Normal 이거나 Canceled 중 Notes에 60% 포함된 경우
         is_normal = (this_month['Status'] == 'Normal')
-        is_60_percent_canceled = (this_month['Status'] == 'Canceled') & (this_month['Notes'].str.contains('60%', na=False))
+        is_60_cancel = (this_month['Status'] == 'Canceled') & (this_month['Notes'].str.contains('60%', na=False))
         
-        pay_df = this_month[is_normal | is_60_percent_canceled]
+        pay_df = this_month[is_normal | is_60_cancel]
         
-        total_cases = int(pay_df['Qty'].sum())
-        post_tax_pay = total_cases * 19.505333
+        total_qty = int(pay_df['Qty'].sum())
+        post_tax_total = total_qty * 19.505333
         
-        col1, col2 = st.columns(2)
-        col1.metric("이번 달 작업 개수", f"{total_cases} 개")
-        col2.metric("내 수당 (세후)", f"${post_tax_pay:,.2f}")
+        c1, c2 = st.columns(2)
+        c1.metric("이번 달 정산 개수", f"{total_qty} 개")
+        c2.metric("내 수당 (세후)", f"${post_tax_total:,.2f}")
         
         st.dataframe(pay_df[['Completed Date', 'Clinic', 'Patient', 'Status', 'Notes']], use_container_width=True)
     else:
-        st.info("정산할 데이터가 없습니다.")
+        st.info("데이터가 없습니다.")
 
 with tab3:
-    # (검색 로직 생략)
-    pass
+    st.subheader("🔍 환자 검색")
+    search_q = st.text_input("이름 또는 Case # 입력")
+    if search_q:
+        search_res = main_df[main_df['Patient'].str.contains(search_q, na=False) | main_df['Case #'].astype(str).str.contains(search_q)]
+        st.dataframe(search_res)
