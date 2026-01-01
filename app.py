@@ -33,12 +33,11 @@ with tab1:
     with col1:
         case_no = st.text_input("A: Case #", key="case_input")
         
-        # --- [추가] 중복 케이스 체크 로직 ---
+        # 중복 체크
         if case_no and not main_df.empty:
-            # 시트의 'Case #' 컬럼에서 현재 입력한 번호가 있는지 확인
             is_duplicate = main_df[main_df['Case #'].astype(str) == case_no]
             if not is_duplicate.empty:
-                st.warning(f"⚠️ 경고: 케이스 번호 {case_no}번은 이미 등록되어 있습니다. (중복 작업인 경우 진행하세요)")
+                st.warning(f"⚠️ 경고: {case_no}번은 이미 등록된 번호입니다.")
         
         raw_clinics = ref_df.iloc[:, 1].unique().tolist()
         clean_clinics = sorted([c for c in raw_clinics if c and c.lower() not in ['nan', 'none', 'clinic', 'deliver']])
@@ -59,8 +58,14 @@ with tab1:
         completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now(), key="completed_date")
         selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True, key="arch_radio")
         selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"], key="mat_select")
+        
+        # --- [추가] 상태 선택 (Status) ---
+        # 기본은 Normal, 취소나 홀드 시 변경 가능
+        status_list = ["Normal", "Hold", "Canceled"]
+        selected_status = st.selectbox("📊 Status (상태)", options=status_list, key="status_select")
 
-    notes = st.text_area("F: Check List / 리메이크 사유", key="notes_input")
+    # 60% 작업 시 수당 포함을 위해 메모를 활용하도록 안내
+    notes = st.text_area("F: Check List / 리메이크 사유 (취소 시 '60% 작업완료' 등 기재)", key="notes_input")
     
     if st.button("✅ 구글 시트에 저장하기", use_container_width=True):
         if selected_clinic == "선택하세요" or not patient or "선택하세요" in str(selected_doctor):
@@ -76,15 +81,16 @@ with tab1:
                 "Receipt Date": receipt_date.strftime('%Y-%m-%d'),
                 "Due Date": due_date.strftime('%Y-%m-%d'),
                 "Completed Date": completed_date.strftime('%Y-%m-%d'),
+                "Status": selected_status, # 상태 저장
                 "Notes": notes
             }])
             try:
                 updated_df = pd.concat([main_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
-                st.success(f"🎉 {patient}님 저장 성공! 화면을 초기화합니다.")
+                st.success(f"🎉 {patient}님 저장 성공!")
                 st.balloons()
-                st.rerun() # 저장 직후 화면을 새로고침하여 중복 클릭 원천 봉쇄
+                st.rerun()
             except Exception as e:
                 st.error(f"저장 오류: {e}")
 
-# (이하 탭 기능은 동일)
+# (이하 탭 기능 생략)
