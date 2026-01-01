@@ -3,7 +3,7 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 
-# 1. 설정
+# 1. 초기 설정
 st.set_page_config(page_title="Skycad", layout="wide")
 st.title("🦷 Skycad Lab Manager")
 
@@ -14,7 +14,6 @@ try:
     r_df = r_df.astype(str).apply(lambda x: x.str.strip())
     m_df = conn.read(ttl=0)
 
-    # 필수 컬럼 생성
     cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 
             'Material', 'Price', 'Qty', 'Total', 'Receipt Date', 
             'Completed Date', 'Shipping Date', 'Due Date', 
@@ -25,6 +24,15 @@ try:
 except Exception as e:
     st.error(f"Error: {e}")
     st.stop()
+
+# [중요] 날짜 실시간 연동을 위한 세션 상태 초기화
+if "due_date" not in st.session_state:
+    st.session_state.due_date = datetime.now() + timedelta(days=7)
+
+# 마감일이 변경될 때 실행될 함수
+def update_ship_date():
+    # 마감일에서 2일을 뺀 날짜를 세션에 저장
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
 
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
@@ -48,7 +56,7 @@ with t1:
             s_doc = st.selectbox("Doctor", d_list, key="k5")
             f_doc = st.text_input("의사명", key="k6") if s_doc == "➕직접" else s_doc
 
-    with st.expander("2️⃣ 날짜 연동", expanded=True):
+    with st.expander("2️⃣ 날짜 연동 (실시간)", expanded=True):
         d1, d2, d3 = st.columns(3)
         with d1:
             arch = st.radio("Arch", ["Max", "Mand"], horizontal=True, key="k7")
@@ -63,11 +71,16 @@ with t1:
                 r_str = f"{rd} {rt.strftime('%H:%M')}"
             cd = st.date_input("완료일", datetime.now()+timedelta(1), key="k13")
         with d3:
-            # 알렉스 요청: 마감일 선택 시 출고일 자동 계산
-            due = st.date_input("마감일", datetime.now()+timedelta(7), key="k14")
-            # 69라인 에러 방지를 위해 수식을 쪼개서 선언
-            calc_ship = due - timedelta(days=2)
-            ship = st.date_input("출고일", value=calc_ship, key="k15")
+            # [수정] 마감일을 고르면 update_ship_date 함수가 실행됨
+            due = st.date_input("마감일 (Due)", 
+                                value=st.session_state.due_date, 
+                                key="due_date", 
+                                on_change=update_ship_date)
+            
+            # [수정] 세션 상태에 저장된 출고일을 기본값으로 표시
+            ship = st.date_input("출고일 (마감 -2일)", 
+                                 value=due - timedelta(days=2), 
+                                 key="k15")
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], key="k16")
 
     with st.expander("3️⃣ 사진 & 메모"):
@@ -76,7 +89,6 @@ with t1:
         img = st.file_uploader("📸 사진", type=['jpg','png'], key="k18")
         memo = st.text_input("메모", key="k19")
 
-    # 단가
     p_u = 180
     if s_cl not in ["선택", "➕직접"]:
         try:
@@ -113,7 +125,6 @@ with t2:
         df['s_dt'] = pd.to_datetime(df['Shipping Date'], errors='coerce')
         now_m = datetime.now().month
         m_data = df[df['s_dt'].dt.month == now_m]
-        # 조건 분리해서 에러 방지
         c_n = (m_data['Status'] == 'Normal')
         c_6 = (m_data['Status'] == 'Canceled') & (m_data['Notes'].str.contains('60%'))
         p_df = m_data[c_n | c_6]
