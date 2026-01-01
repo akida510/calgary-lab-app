@@ -7,13 +7,7 @@ from datetime import datetime, timedelta
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.title("🦷 Skycad Lab Night Guard Manager")
 
-# 2. 보안 키 처리
-if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
-    raw_key = st.secrets["connections"]["gsheets"]["private_key"]
-    if "\\n" in raw_key:
-        st.secrets["connections"]["gsheets"]["private_key"] = raw_key.replace("\\n", "\n")
-
-# 3. 데이터 로드 및 전처리
+# 2. 데이터 연결 및 로드
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     ref_df = conn.read(worksheet="Reference", ttl=0, header=None).astype(str)
@@ -39,13 +33,26 @@ except Exception as e:
     st.error(f"데이터 연결 중 오류: {e}")
     st.stop()
 
+# --- [추가] 모든 입력창 초기화 함수 ---
+def clear_form():
+    st.session_state["case_id"] = ""
+    st.session_state["p_name"] = ""
+    st.session_state["clinic_sel"] = "선택하세요"
+    st.session_state["doc_sel"] = "선택하세요"
+    if "direct_clinic" in st.session_state: st.session_state["direct_clinic"] = ""
+    if "direct_doc" in st.session_state: st.session_state["direct_doc"] = ""
+    st.session_state["p_qty"] = 1
+    st.session_state["memo"] = ""
+    st.session_state["checks"] = []
+    # 사진은 보안상 브라우저가 직접 비워야 하므로 수동 선택 필요
+    st.toast("모든 입력창을 비웠습니다!")
+
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "💰 수당 정산", "🔍 환자 검색"])
 
 # --- [TAB 1: 케이스 등록] ---
 with tab1:
     st.subheader("새로운 케이스 정보 입력")
     
-    # 입력창이 잘 보이도록 구역을 나눔
     with st.expander("1️⃣ 기본 정보 입력", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -75,8 +82,8 @@ with tab1:
         with d2:
             is_3d_model = st.checkbox("3D 모델 (접수일/시간 없음)", value=True, key="is_3d")
             if not is_3d_model:
-                r_date = st.date_input("📅 접수일", datetime.now())
-                r_time = st.time_input("⏰ 시간", datetime.strptime("10:00", "%H:%M").time())
+                r_date = st.date_input("📅 접수일", datetime.now(), key="r_date_val")
+                r_time = st.time_input("⏰ 시간", datetime.strptime("10:00", "%H:%M").time(), key="r_time_val")
                 receipt_date_str = f"{r_date.strftime('%Y-%m-%d')} {r_time.strftime('%H:%M')}"
             else:
                 receipt_date_str = "-"
@@ -87,7 +94,7 @@ with tab1:
             shipping_date = st.date_input("🚚 출고일", due_date - timedelta(days=2), key="shipping_date")
             selected_status = st.selectbox("📊 Status", options=["Normal", "Hold", "Canceled"], key="p_status")
 
-    # 단가 확인 (자동 연동)
+    # 단가 및 합계
     current_price = 180 
     if selected_clinic_pick not in ["선택하세요", "➕ 새 클리닉 직접 입력"]:
         try:
@@ -99,7 +106,6 @@ with tab1:
     st.info(f"💰 합계: ${total_amount}")
 
     with st.expander("3️⃣ 체크리스트 및 사진", expanded=True):
-        # 체크리스트 추출
         checklist_pool = []
         for col in range(3, ref_df.shape[1]):
             items = ref_df.iloc[:, col].unique().tolist()
@@ -108,11 +114,11 @@ with tab1:
         
         selected_checks = st.multiselect("📋 체크리스트 선택", options=checklist_options, key="checks")
         add_notes = st.text_input("추가 메모 (60% 작업 등)", key="memo")
-        uploaded_file = st.file_uploader("📸 사진 첨부", type=['jpg', 'jpeg', 'png'], key="photo")
+        uploaded_file = st.file_uploader("📸 사진 첨부", type=['jpg', 'jpeg', 'png'], key="photo_upload")
         if uploaded_file:
             st.image(uploaded_file, caption="미리보기", width=200)
 
-    # 저장 버튼
+    # --- 저장 및 강제 초기화 버튼 ---
     if st.button("🚀 구글 시트에 최종 저장", use_container_width=True):
         if not final_clinic or not patient or final_clinic == "선택하세요":
             st.error("⚠️ 클리닉 이름과 환자 성함은 꼭 입력해줘!")
@@ -130,14 +136,19 @@ with tab1:
             try:
                 updated_df = pd.concat([main_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
+                
+                # 저장 성공 후 세션 상태 초기화
+                clear_form() 
+                
                 st.success(f"✅ {patient}님 케이스 저장 완료!")
                 st.balloons()
                 st.cache_data.clear()
-                st.rerun()
+                st.rerun() # 페이지 리로딩으로 빈 화면 노출
+                
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-# --- [TAB 2: 수당 정산] ---
+# (TAB 2, 3 로직은 이전과 동일)
 with tab2:
     st.subheader("💵 이번 달 수당 요약")
     valid_df = main_df.dropna(subset=['Completed Date'])
@@ -147,16 +158,12 @@ with tab2:
         is_normal = (this_month_df['Status'] == 'Normal')
         is_60_cancel = (this_month_df['Status'] == 'Canceled') & (this_month_df['Notes'].str.contains('60%', na=False))
         pay_df = this_month_df[is_normal | is_60_cancel]
-        
         t_qty = int(pay_df['Qty'].sum())
         c1, c2 = st.columns(2)
         c1.metric("이번 달 작업량", f"{t_qty} 개")
         c2.metric("세후 수당 합계", f"${t_qty * 19.505333:,.2f}")
         st.dataframe(pay_df[['Completed Date', 'Clinic', 'Patient', 'Status', 'Notes']], use_container_width=True)
-    else:
-        st.info("기록이 없습니다.")
 
-# --- [TAB 3: 환자 검색] ---
 with tab3:
     st.subheader("🔍 통합 검색")
     search_q = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
