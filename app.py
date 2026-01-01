@@ -53,8 +53,8 @@ with tab1:
         due_date = st.date_input("🚨 Due Date (마감일)", datetime.now(), key="due_date")
         completed_date = st.date_input("✅ Date Completed (완료일)", datetime.now(), key="completed_date")
         
-        # Arch: Max 우선
-        selected_arch = st.radio("Arch", options=["Max", "Mand", "Note"], horizontal=True, key="arch_radio")
+        # Arch: Max 우선, Note 삭제 요청 반영
+        selected_arch = st.radio("Arch", options=["Max", "Mand"], horizontal=True, key="arch_radio")
         
         # Material: 고정 순서
         selected_material = st.selectbox("Material", options=["Thermo", "Dual", "Soft", "Hard"], key="mat_select")
@@ -65,7 +65,6 @@ with tab1:
         if selected_clinic == "선택하세요" or not patient or "선택하세요" in str(selected_doctor):
             st.warning("필수 항목을 모두 입력해 주세요.")
         else:
-            # 한 줄로 깔끔하게 정리하여 SyntaxError 방지
             new_row = pd.DataFrame([{
                 "Case #": case_no,
                 "Clinic": selected_clinic,
@@ -93,5 +92,9 @@ with tab3:
     st.subheader("🔍 환자 검색")
     search_q = st.text_input("이름 또는 케이스 번호 입력")
     if search_q:
-        result = main_df[main_df.apply(lambda row: search_q.lower() in str(row.values).lower(), axis=1)]
-        st.dataframe(result, use_container_width=True)
+        # main_df가 비어있지 않은지 확인 후 검색
+        if not main_df.empty:
+            result = main_df[main_df.apply(lambda row: search_q.lower() in str(row.values).lower(), axis=1)]
+            st.dataframe(result, use_container_width=True)
+        else:
+            st.write("데이터가 없습니다.")
