@@ -26,7 +26,10 @@ def get_full_data():
         if df is None or df.empty:
             cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Receipt Date', 'Receipt Time', 'Completed Date', 'Shipping Date', 'Due Date', 'Status', 'Notes']
             return pd.DataFrame(columns=cols)
+        # 데이터 정제
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
+        df['Shipping Date'] = df['Shipping Date'].astype(str).str.strip()
+        df['Status'] = df['Status'].astype(str).str.strip()
         return df
     except:
         return pd.DataFrame()
@@ -86,4 +89,75 @@ with t1:
             rt = st.time_input("접수 시간 (Time)", datetime.now(), key=f"rt_{it}", disabled=is_3d)
             comp_d = st.date_input("완료일 (Completed)", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            due_v
+            # 💡 NameError 방지: 마감일을 먼저 정의
+            due_v = st.date_input("마감일 (Due Date)", datetime.now() + timedelta(7), key=f"due_{it}")
+            # 마감일 변수를 사용하여 출고일 계산
+            ship_d = st.date_input("출고일 (Shipping)", due_v - timedelta(2), key=f"sd_{it}")
+            stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
+
+    with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
+        chk_opts = []
+        if not ref_df.empty:
+            chk_opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and str(i).lower() != 'nan'])))
+        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"chk_{it}")
+        img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
+        memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
+
+    # 단가 로직
+    p_u = 180
+    if not ref_df.empty and sel_cl not in ["선택", "➕ 직접"]:
+        try:
+            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
+            p_u = int(float(p_val))
+        except: p_u = 180
+
+    if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
+        if not case_no or f_cl in ["선택", ""]:
+            st.error("⚠️ 필수 항목(Case#, Clinic)을 확인해주세요.")
+        else:
+            final_note = ", ".join(chks) + (f" | {memo}" if memo else "")
+            new_row = pd.DataFrame([{
+                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
+                "Patient": patient, "Arch": arch, "Material": mat, 
+                "Price": p_u, "Qty": qty, "Total": p_u * qty, 
+                "Receipt Date": rd.strftime('%Y-%m-%d') if not is_3d else "3D Scan",
+                "Receipt Time": rt.strftime('%H:%M') if not is_3d else "-",
+                "Completed Date": comp_d.strftime('%Y-%m-%d'), 
+                "Shipping Date": ship_d.strftime('%Y-%m-%d'), 
+                "Due Date": due_v.strftime('%Y-%m-%d'),
+                "Status": stat, "Notes": final_note
+            }])
+            try:
+                updated_df = pd.concat([m_df, new_row], ignore_index=True)
+                conn.update(data=updated_df)
+                st.balloons()
+                st.success("✅ 저장 성공! 입력창을 초기화합니다.")
+                time.sleep(1) 
+                force_reset()
+            except Exception as e:
+                st.error(f"저장 중 오류 발생: {e}")
+
+# --- [TAB 2: 이번 달 정산] ---
+with t2:
+    st.subheader(f"📊 {datetime.now().month}월 정산 (Status: Normal)")
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['s_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        cur_m, cur_y = datetime.now().month, datetime.now().year
+        m_data = pdf[(pdf['s_dt'].dt.month == cur_m) & (pdf['s_dt'].dt.year == cur_y) & (pdf['Status'].str.strip().str.lower() == 'normal')]
+        
+        if not m_data.empty:
+            st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            total_q = int(m_data['Qty'].sum())
+            c1, c2 = st.columns(2)
+            c1.metric("정산 수량", f"{total_q} 개")
+            c2.metric("세후 예상 수당", f"${total_q * 19.505333:,.2f}")
+        else:
+            st.warning("조건에 맞는 데이터가 없습니다.")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    q = st.text_input("검색 (환자명 또는 Case#)", key=f"search_box")
+    if q and not m_df.empty:
+        res = m_df[m_df['Patient'].str.contains(q, case=False, na=False) | m_df['Case #'].astype(str).str.contains(q)]
+        st.dataframe(res, use_container_width=True)
