@@ -17,12 +17,31 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 2. 데이터 연결
+# 2. 데이터 연결 및 초기화
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 세션 상태 초기화 (날짜 연동 핵심)
+if "iter_count" not in st.session_state:
+    st.session_state.iter_count = 0
+if "due_date" not in st.session_state:
+    st.session_state.due_date = datetime.now().date() + timedelta(days=7)
+if "ship_date" not in st.session_state:
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
+
+# 마감일 변경 시 출고일을 자동으로 -2일 계산하는 함수
+def sync_dates():
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
+
+def force_reset():
+    st.session_state.iter_count += 1
+    st.session_state.due_date = datetime.now().date() + timedelta(days=7)
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
+    st.cache_data.clear()
+    st.rerun()
 
 def get_full_data():
     try:
-        df = conn.read(ttl=10)
+        df = conn.read(ttl=5)
         if df is None or df.empty:
             cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Receipt Date', 'Receipt Time', 'Completed Date', 'Shipping Date', 'Due Date', 'Status', 'Notes']
             return pd.DataFrame(columns=cols)
@@ -33,26 +52,6 @@ def get_full_data():
 
 m_df = get_full_data()
 ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
-
-# 초기화 및 날짜 상태 관리용 세션 설정
-if "iter_count" not in st.session_state:
-    st.session_state.iter_count = 0
-if "due_date" not in st.session_state:
-    st.session_state.due_date = datetime.now().date() + timedelta(days=7)
-if "ship_date" not in st.session_state:
-    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
-
-def force_reset():
-    st.session_state.iter_count += 1
-    # 날짜 초기화
-    st.session_state.due_date = datetime.now().date() + timedelta(days=7)
-    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
-    st.cache_data.clear()
-    st.rerun()
-
-# 마감일 변경 시 호출될 함수 (실시간 연동 핵심)
-def update_dates():
-    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
 
 t1, t2, t3 = st.tabs(["📝 케이스 등록", "💰 이번 달 정산", "🔍 케이스 검색"])
 
@@ -89,12 +88,8 @@ with t1:
             rt = st.time_input("접수 시간", datetime.now(), key=f"rt_{it}", disabled=is_3d)
             comp_d = st.date_input("완료일", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            # 💡 [마감일 위젯] 변경 시 update_dates 함수 실행
-            st.date_input("마감일 (Due Date)", key="due_date", on_change=update_dates)
-            
-            # 💡 [출고일 위젯] 세션 상태의 ship_date 값을 항상 사용
+            st.date_input("마감일 (Due Date)", key="due_date", on_change=sync_dates)
             st.date_input("출고일 (Shipping)", key="ship_date")
-            
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
     with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
@@ -103,7 +98,6 @@ with t1:
         img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
         memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
 
-    # 단가 및 저장 로직
     p_u = 180
     if sel_cl not in ["선택", "➕ 직접"]:
         try:
@@ -119,6 +113,7 @@ with t1:
             save_rd = "-" if is_3d else rd.strftime('%Y-%m-%d')
             save_rt = "-" if is_3d else rt.strftime('%H:%M')
             
+            # 💡 SyntaxError 수정 완료: 따옴표 완벽 마감
             new_row = pd.DataFrame([{
                 "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
                 "Patient": patient, "Arch": arch, "Material": mat, 
@@ -126,4 +121,36 @@ with t1:
                 "Receipt Date": save_rd, "Receipt Time": save_rt,
                 "Completed Date": comp_d.strftime('%Y-%m-%d'), 
                 "Shipping Date": st.session_state.ship_date.strftime('%Y-%m-%d'), 
-                "Due Date": st.session_state.due_date.strftime('%Y-%
+                "Due Date": st.session_state.due_date.strftime('%Y-%m-%d'),
+                "Status": stat, "Notes": final_note
+            }])
+            try:
+                updated_df = pd.concat([m_df, new_row], ignore_index=True)
+                conn.update(data=updated_df)
+                st.balloons()
+                st.success("✅ 저장 성공!")
+                time.sleep(1) 
+                force_reset()
+            except Exception as e:
+                st.error(f"저장 오류: {e}")
+
+# TAB 2 & 3
+with t2:
+    st.subheader(f"📊 {datetime.now().month}월 정산")
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['s_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        cur_m, cur_y = datetime.now().month, datetime.now().year
+        m_data = pdf[(pdf['s_dt'].dt.month == cur_m) & (pdf['s_dt'].dt.year == cur_y) & (pdf['Status'].str.strip().str.lower() == 'normal')]
+        if not m_data.empty:
+            st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            total_q = int(m_data['Qty'].sum())
+            c1, c2 = st.columns(2)
+            c1.metric("정산 수량", f"{total_q} 개")
+            c2.metric("세후 예상 수당", f"${total_q * 19.505333:,.2f}")
+
+with t3:
+    q = st.text_input("검색 (환자명 또는 Case#)", key="search_input")
+    if q and not m_df.empty:
+        res = m_df[m_df['Patient'].str.contains(q, case=False, na=False) | m_df['Case #'].astype(str).str.contains(q)]
+        st.dataframe(res, use_container_width=True)
