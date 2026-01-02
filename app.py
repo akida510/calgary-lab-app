@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
+st.set_page_config(page_title="Skycad Lab", layout="wide")
 st.markdown("### 🦷 Skycad Manager by Heechul Jung")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -23,7 +23,7 @@ def reset():
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str).apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
-        df = df[(df['Case #']!="")&(df['Case #']!="nan")&(~df['Case #'].str.contains("Deliver|Remake|작업량|세후",na=False))]
+        df = df[(df['Case #']!="")&(df['Case #']!="nan")&(~df['Case #'].str.contains("Deliver|Remake|작업량",na=False))]
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df.reset_index(drop=True)
     except: return pd.DataFrame()
@@ -64,19 +64,4 @@ with t1:
         with d3:
             due_d = st.date_input("마감일", key="d_k", on_change=upd_s)
             ship_d = st.date_input("출고일", key="s_k")
-            stt = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
-
-    with st.expander("✅ 기타"):
-        all_v = ref_df.iloc[:,3:].values.flatten()
-        ck_o = sorted(list(set([str(x) for x in all_v if x and str(x)!='nan'])))
-        chks = st.multiselect("체크", ck_o, key=f"ck{i}")
-        memo = st.text_input("메모", key=f"me{i}")
-
-    if st.button("🚀 저장"):
-        if not case_no or f_cl in ["선택",""]: st.error("누락 발생")
-        else:
-            p_u = 180
-            if sel_cl not in ["선택","➕ 직접"]:
-                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,3]))
-                except: p_u = 180
-            nr = pd.DataFrame([{"Case #":case_no,"Clinic":f
+            stt = st.selectbox("Status", ["Normal","Hold","Canceled
