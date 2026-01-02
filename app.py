@@ -9,17 +9,28 @@ st.write("### 🦷 Skycad Lab Manager")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 1. 초기화 및 세션 상태 관리
+# 1. 세션 상태 초기화
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
-# 💡 마감일 변경 시 출고일을 -2일로 계산하는 함수
+i = st.session_state.it
+
+# 날짜 초기값 설정 (충돌 방지를 위해 Session State에 미리 할당)
+if f"due{i}" not in st.session_state:
+    st.session_state[f"due{i}"] = date.today() + timedelta(days=7)
+if f"shp{i}" not in st.session_state:
+    st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
+
+# 마감일 변경 시 출고일 자동 계산 함수
 def sync_dates():
-    i = st.session_state.it
-    if f"due{i}" in st.session_state:
-        st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
+    st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
 
 def reset_fields():
+    # 현재 인덱스의 날짜 키값 삭제 후 인덱스 증가
+    curr_i = st.session_state.it
+    for key in [f"due{curr_i}", f"shp{curr_i}"]:
+        if key in st.session_state:
+            del st.session_state[key]
     st.session_state.it += 1
     st.cache_data.clear()
 
@@ -28,7 +39,6 @@ def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
         df = df[df['Case #'].str.strip() != ""]
-        df = df[df['Case #'].str.lower() != "nan"]
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
     except: return pd.DataFrame()
@@ -39,7 +49,6 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
 # --- [TAB 1: 등록] ---
 with t1:
-    i = st.session_state.it
     st.subheader("📋 입력")
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #", key=f"c{i}")
@@ -67,9 +76,9 @@ with t1:
         
         has_d = d2.checkbox("마감일/출고일 지정", True, key=f"h_d{i}")
         if has_d:
-            # 💡 마감일 입력 시 sync_dates 함수를 실행하여 출고일(-2일) 자동 조정
-            due = d3.date_input("마감일", value=date.today()+timedelta(7), key=f"due{i}", on_change=sync_dates)
-            shp = d3.date_input("출고일", value=due-timedelta(2), key=f"shp{i}")
+            # value 설정을 빼고 key와 on_change로만 관리하여 충돌 해결
+            due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
+            shp = d3.date_input("출고일", key=f"shp{i}")
             s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
         else: 
             due = shp = s_t = None
@@ -98,31 +107,17 @@ with t1:
             try:
                 new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
                 conn.update(data=new_df)
-                st.success("저장 성공! 입력창을 비웁니다."); time.sleep(1)
+                st.success("저장 성공!"); time.sleep(1)
                 reset_fields()
                 st.rerun()
             except Exception as e: st.error(f"저장 오류: {e}")
 
 # --- [TAB 2: 정산] ---
 with t2:
-    st.subheader(f"📊 {date.today().month}월 정산 (Case # 열 기준)")
+    st.subheader(f"📊 {date.today().month}월 정산 (Case # 기준)")
     if not m_df.empty:
         pdf = m_df.copy()
         pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[pdf['SD_dt'].dt.month == date.today().month]
         if not m_dt.empty:
-            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            v_df.index = m_dt['Case #']
-            v_df.index.name = "Case #"
-            st.dataframe(v_df, use_container_width=True)
-            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
-            t_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
-            st.metric("합계 (Normal)", f"{int(t_qty)} ea / ${t_qty*19.505333:,.2f}")
-        else: st.info("이번 달 데이터 없음")
-
-# --- [TAB 3: 검색] ---
-with t3:
-    qs = st.text_input("검색", key="sb")
-    if not m_df.empty:
-        res = m_df[m_df['Patient'].str.contains(qs, case=False, na=False) | m_df['Case #'].str.contains(qs, case=False, na=False)] if qs else m_df.tail(20)
-        st.dataframe(res, use_container_width=True)
+            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status
