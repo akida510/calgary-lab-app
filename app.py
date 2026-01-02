@@ -20,7 +20,6 @@ st.markdown(
 # 2. 데이터 연결 및 초기화
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 상태 초기화 (날짜 연동 핵심)
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 if "due_date" not in st.session_state:
@@ -28,7 +27,6 @@ if "due_date" not in st.session_state:
 if "ship_date" not in st.session_state:
     st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
 
-# 마감일 변경 시 출고일을 자동으로 -2일 계산하는 함수
 def sync_dates():
     st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
 
@@ -113,7 +111,6 @@ with t1:
             save_rd = "-" if is_3d else rd.strftime('%Y-%m-%d')
             save_rt = "-" if is_3d else rt.strftime('%H:%M')
             
-            # 💡 SyntaxError 수정 완료: 따옴표 완벽 마감
             new_row = pd.DataFrame([{
                 "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
                 "Patient": patient, "Arch": arch, "Material": mat, 
@@ -134,20 +131,37 @@ with t1:
             except Exception as e:
                 st.error(f"저장 오류: {e}")
 
-# TAB 2 & 3
+# --- [TAB 2: 정산 로직 대폭 강화] ---
 with t2:
-    st.subheader(f"📊 {datetime.now().month}월 정산")
+    st.subheader(f"📊 {datetime.now().month}월 정산 내역")
     if not m_df.empty:
         pdf = m_df.copy()
-        pdf['s_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        
+        # 💡 핵심: 어떤 형식이든(00:00:00 포함 여부 무관) 날짜로 강제 변환
+        pdf['Shipping Date'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        
         cur_m, cur_y = datetime.now().month, datetime.now().year
-        m_data = pdf[(pdf['s_dt'].dt.month == cur_m) & (pdf['s_dt'].dt.year == cur_y) & (pdf['Status'].str.strip().str.lower() == 'normal')]
+        
+        # 💡 필터링 조건 강화: 연도와 월이 일치하고 Status가 Normal인 데이터
+        m_data = pdf[
+            (pdf['Shipping Date'].dt.month == cur_m) & 
+            (pdf['Shipping Date'].dt.year == cur_y) & 
+            (pdf['Status'].str.strip().str.capitalize() == 'Normal')
+        ]
+        
         if not m_data.empty:
-            st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            # 출력용 날짜 포맷 정리
+            display_df = m_data.copy()
+            display_df['Shipping Date'] = display_df['Shipping Date'].dt.strftime('%Y-%m-%d')
+            
+            st.dataframe(display_df[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            
             total_q = int(m_data['Qty'].sum())
             c1, c2 = st.columns(2)
-            c1.metric("정산 수량", f"{total_q} 개")
-            c2.metric("세후 예상 수당", f"${total_q * 19.505333:,.2f}")
+            c1.metric("이번 달 총 수량", f"{total_q} 개")
+            c2.metric("예상 수당 (Tax 포함)", f"${total_q * 19.505333:,.2f}")
+        else:
+            st.warning(f"현재 {cur_m}월에 출고(Shipping)된 'Normal' 상태의 케이스가 없습니다.")
 
 with t3:
     q = st.text_input("검색 (환자명 또는 Case#)", key="search_input")
