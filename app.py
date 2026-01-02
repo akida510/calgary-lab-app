@@ -7,7 +7,7 @@ import time
 # 1. 페이지 설정 및 상단 레이아웃
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
-# 제목과 제작자 정보를 한 줄에 배치 (굵고 작게)
+# 제목과 제작자 정보
 st.markdown(
     """
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -63,12 +63,14 @@ with t1:
     case_no = c1.text_input("Case #", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
     
+    # Clinic 선택 로직
     cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic", ["선택"]+cl_list+["➕ 직접"], key=f"cl{i}")
     f_cl = c2.text_input("클리닉명 직접입력", key=f"fcl{i}") if sel_cl=="➕ 직접" else sel_cl
     
+    # Doctor 선택 로직
     doc_opts = ["선택","➕ 직접"]
-    if sel_cl not in ["선택","➕ 직접"]:
+    if sel_cl not in ["선택", "➕ 직접"]:
         docs = ref_df[ref_df.iloc[:,1]==sel_cl].iloc[:,2].unique()
         doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
     sel_doc = c3.selectbox("Doctor", doc_opts, key=f"d{i}")
@@ -90,23 +92,36 @@ with t1:
         else: due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    with st.expander("✅ 체크리스트 & 메모 & 사진", expanded=True):
+    with st.expander("✅ 체크리스트 & 메모", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트 선택", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
         memo = st.text_input("추가 메모", key=f"me{i}")
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+        up_img = st.file_uploader("📸 사진 업로드(미리보기용)", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+        if up_img:
+            st.image(up_img, width=300)
 
+    # --- [저장 로직] ---
     if st.button("🚀 시트에 저장하기", use_container_width=True):
-        if not case_no or f_cl in ["선택", ""]: st.error("Case #와 Clinic 정보를 확인하세요.")
+        # 유효성 검사: Case # 필수, (Clinic 혹은 Doctor 중 하나는 필수)
+        if not case_no:
+            st.error("Case #를 입력해 주세요.")
+        elif (f_cl in ["선택", ""]) and (f_doc in ["선택", ""]):
+            st.error("Clinic 또는 Doctor 정보 중 최소 하나는 입력해야 합니다.")
         else:
+            # 단가 결정 로직
             p_u = 180
             try:
-                if sel_cl not in ["선택", "➕ 직접"]:
-                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+                if f_cl not in ["선택", "", "➕ 직접"]:
+                    p_u_val = ref_df[ref_df.iloc[:, 1] == f_cl].iloc[0, 3]
+                    p_u = int(float(p_u_val))
             except: p_u = 180
+            
             dfmt = '%Y-%m-%d'
+            final_cl = "" if f_cl == "선택" else f_cl
+            final_doc = "" if f_doc == "선택" else f_doc
+            
             row = {
-                "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
+                "Case #": case_no, "Clinic": final_cl, "Doctor": final_doc, "Patient": patient,
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                 "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                 "Completed Date": cp.strftime(dfmt),
@@ -114,8 +129,16 @@ with t1:
                 "Due Date": (due.strftime(dfmt) if due else "-"),
                 "Status": stt, "Notes": ", ".join(chks) + (f" | {memo}" if memo else "")
             }
-            conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-            st.success("데이터 저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
+            
+            try:
+                new_data = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
+                conn.update(data=new_data)
+                st.success(f"{case_no} 케이스 저장 성공!")
+                time.sleep(1)
+                reset_fields()
+                st.rerun()
+            except Exception as e:
+                st.error(f"저장 중 오류가 발생했습니다: {e}")
 
 # --- [TAB 2: 정산] ---
 with t2:
@@ -130,12 +153,15 @@ with t2:
         pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
         if not m_dt.empty:
-            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
+            v_df = m_dt[['Shipping Date', 'Clinic', 'Doctor', 'Patient', 'Qty', 'Status']].copy()
             v_df.index = m_dt['Case #']; v_df.index.name = "Case #"
             st.dataframe(v_df, use_container_width=True)
-            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
-            total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
+            
+            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal'].copy()
+            pay_dt['Qty'] = pd.to_numeric(pay_dt['Qty'], errors='coerce').fillna(0)
+            total_qty = pay_dt['Qty'].sum()
             extra_qty = max(0, total_qty - 320)
+            
             m1, m2, m3 = st.columns(3)
             m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
             m2.metric("엑스트라(320개 초과)", f"{int(extra_qty)} ea")
