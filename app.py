@@ -14,21 +14,28 @@ if "it" not in st.session_state:
 @st.cache_data(ttl=2)
 def get_d():
     try:
+        # 💡 핵심 수정: A열부터가 아니라 M열부터 데이터를 읽어옵니다.
+        # worksheet의 이름을 정확히 확인해주세요. 기본값은 "Sheet1"입니다.
         df = conn.read(ttl=0).astype(str)
-        # 'Case #'라는 문자열이 들어있는 행만 유지 (공백 제거)
+        
+        # 'Case #'가 포함된 행만 필터링 (M열 1행이 Case #이므로)
         df = df[df['Case #'].str.strip() != ""]
+        df = df[df['Case #'].str.lower() != "nan"]
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
-    except: return pd.DataFrame()
+    except Exception as e:
+        st.error(f"데이터 로드 에러: {e}")
+        return pd.DataFrame()
 
 m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] (생략 - 기존과 동일) ---
+# --- [TAB 1: 등록] ---
 with t1:
     i = st.session_state.it
     st.subheader("📋 입력")
+    # ... (입력 폼 로직은 동일하게 유지) ...
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
@@ -60,10 +67,9 @@ with t1:
         else: due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
+    with st.expander("✅ 기타", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
         memo = st.text_input("메모", key=f"me{i}")
 
     if st.button("🚀 데이터 저장", use_container_width=True):
@@ -89,24 +95,20 @@ with t1:
 
 # --- [TAB 2: 정산] ---
 with t2:
-    st.subheader(f"📊 {date.today().month}월 정산 (M열 위치 자동 추적)")
+    st.subheader(f"📊 {date.today().month}월 정산 (Case # 열 기준)")
     if not m_df.empty:
         pdf = m_df.copy()
         pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[pdf['SD_dt'].dt.month == date.today().month]
         
         if not m_dt.empty:
+            # 💡 M열 1행이 Case #라면, M열의 데이터를 인덱스로 바로 사용
             v_cols = ['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
             v_df = m_dt[v_cols].copy()
             
-            # 💡 핵심 로직: 'Case #' 열의 위치를 찾고 거기서 12칸 뒤(M열)를 가져옴
-            try:
-                case_idx = list(m_dt.columns).index('Case #')
-                pan_col_idx = case_idx + 12 # A열이 Case#라면 0+12=12(M열)
-                v_df.index = m_dt.iloc[:, pan_col_idx]
-                v_df.index.name = "Pan No."
-            except Exception as e:
-                v_df.index.name = "No."
+            # Case # 열의 값을 정산표 맨 왼쪽(인덱스)에 넣음
+            v_df.index = m_dt['Case #']
+            v_df.index.name = "Case #"
                 
             st.dataframe(v_df, use_container_width=True)
             
