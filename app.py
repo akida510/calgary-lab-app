@@ -17,40 +17,44 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 2. 데이터 연결
+# 2. 데이터 연결 및 초기화
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 상태 초기화 (날짜 연동용)
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 
-# 마감일 변경 시 출고일을 자동으로 -2일 계산하는 콜백 함수
+# 마감일 -> 출고일(-2일) 연동 함수
 def update_shipping_date():
-    # due_key 위젯의 현재 값을 가져와서 ship_key 세션 상태를 업데이트
     st.session_state.ship_key = st.session_state.due_key - timedelta(days=2)
 
-# 초기 날짜 세팅 (위젯 생성 전 한 번만 실행)
 if 'due_key' not in st.session_state:
     st.session_state.due_key = datetime.now().date() + timedelta(days=7)
 if 'ship_key' not in st.session_state:
     st.session_state.ship_key = st.session_state.due_key - timedelta(days=2)
 
 def force_reset():
-    # 💡 오류 해결 핵심: 세션 값을 직접 수정하지 않고 iter_count만 올려서 위젯을 새로 생성
     st.session_state.iter_count += 1
     st.cache_data.clear()
     st.rerun()
 
+# 💡 데이터 로드 함수 (정산/검색 안되는 문제 해결 핵심)
 def get_full_data():
     try:
+        # ttl=0으로 설정하여 캐시를 무시하고 구글 시트에서 즉시 가져옴
         df = conn.read(ttl=0)
         if df is None or df.empty:
-            cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Receipt Date', 'Receipt Time', 'Completed Date', 'Shipping Date', 'Due Date', 'Status', 'Notes']
-            return pd.DataFrame(columns=cols)
-        if 'Shipping Date' in df.columns:
-            df['Shipping Date'] = df['Shipping Date'].astype(str).str.replace(' 00:00:00', '', regex=False).str.strip()
+            return pd.DataFrame()
+        
+        # 전처리: 모든 열의 양 끝 공백 제거 및 문자열화
+        df = df.astype(str).apply(lambda x: x.str.strip())
+        
+        # 'Qty'와 'Total'은 숫자로 변환 (계산용)
+        df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
+        df['Total'] = pd.to_numeric(df['Total'], errors='coerce').fillna(0)
+        
         return df
-    except:
+    except Exception as e:
+        st.error(f"데이터 로드 오류: {e}")
         return pd.DataFrame()
 
 m_df = get_full_data()
@@ -58,7 +62,7 @@ ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
 
 t1, t2, t3 = st.tabs(["📝 케이스 등록", "💰 이번 달 정산", "🔍 케이스 검색"])
 
-# --- [TAB 1: 케이스 등록] ---
+# --- [TAB 1: 케이스 등록] --- (기능 유지)
 with t1:
     it = st.session_state.iter_count
     st.subheader("📋 새 케이스 정보 입력")
@@ -91,9 +95,7 @@ with t1:
             rt = st.time_input("접수 시간", datetime.now(), key=f"rt_{it}", disabled=is_3d)
             comp_d = st.date_input("완료일", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            # 💡 중요: key="due_key"를 사용하여 콜백 함수와 연결
             due_d = st.date_input("마감일 (Due Date)", key="due_key", on_change=update_shipping_date)
-            # 💡 중요: key="ship_key"를 사용하여 마감일 변경 시 즉시 연동
             ship_d = st.date_input("출고일 (Shipping)", key="ship_key")
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
@@ -133,11 +135,45 @@ with t1:
                 st.balloons()
                 st.success("✅ 저장 성공!")
                 time.sleep(1)
-                force_reset() # 이제 충돌 없이 리셋됩니다.
+                force_reset()
             except Exception as e:
                 st.error(f"저장 오류: {e}")
 
-# (정산 및 검색 탭 로직은 이전과 동일하게 유지)
+# --- [TAB 2: 정산 로직 - 복구 완료] ---
 with t2:
     cur_m, cur_y = datetime.now().month, datetime.now().year
-    st.subheader(f"📊 {cur_y}년 {cur_m}월 정산")
+    st.subheader(f"📊 {cur_y}년 {cur_m}월 정산 현황")
+    
+    if not m_df.empty:
+        pdf = m_df.copy()
+        # Shipping Date를 날짜로 강제 변환
+        pdf['S_Date_Fixed'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        
+        # 이번 달 & Normal 상태 필터링
+        m_data = pdf[
+            (pdf['S_Date_Fixed'].dt.month == cur_m) & 
+            (pdf['S_Date_Fixed'].dt.year == cur_y) & 
+            (pdf['Status'].str.lower() == 'normal')
+        ]
+        
+        if not m_data.empty:
+            st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            total_qty = m_data['Qty'].sum()
+            c1, c2 = st.columns(2)
+            c1.metric("이번 달 총 수량", f"{int(total_qty)} 개")
+            c2.metric("세후 예상 수당", f"${total_qty * 19.505333:,.2f}")
+        else:
+            st.warning(f"{cur_m}월에 출고된 'Normal' 상태 데이터가 없습니다.")
+    else:
+        st.error("데이터를 불러오지 못했습니다. 구글 시트 연결을 확인하세요.")
+
+# --- [TAB 3: 검색 - 복구 완료] ---
+with t3:
+    st.subheader("🔍 케이스 통합 검색")
+    q = st.text_input("환자 이름 또는 Case #를 입력하세요", key="search_bar")
+    
+    if not m_df.empty:
+        if q:
+            # 대소문자 구분 없이 문자열 포함 여부로 검색
+            res = m_df[
+                m
