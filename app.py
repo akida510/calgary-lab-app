@@ -25,7 +25,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 
-# 마감일 -> 출고일 자동 연동 (-2일)
 def update_shipping_date():
     st.session_state.ship_key = st.session_state.due_key - timedelta(days=2)
 
@@ -39,29 +38,20 @@ def force_reset():
     st.cache_data.clear()
     st.rerun()
 
-# 속도 개선 및 노이즈 필터링 함수
+# 데이터 로드 및 노이즈 필터링
 @st.cache_data(ttl=5)
 def get_clean_data():
     try:
         df = conn.read(ttl=0)
-        if df is None or df.empty:
-            return pd.DataFrame()
-        
-        # 데이터 정리: 문자열화 및 공백 제거
+        if df is None or df.empty: return pd.DataFrame()
+        # 공백 및 시간 찌꺼기 제거
         df = df.astype(str).apply(lambda x: x.str.replace(' 00:00:00', '', regex=False).str.strip())
-        
-        # 시트 하단의 계산식/텍스트 노이즈 제거
-        df = df[
-            (df['Case #'] != "") & 
-            (df['Case #'] != "nan") &
-            (~df['Case #'].str.contains("Deliver|Remake|작업량|세후|할당량|Year|Month|Date|NAME", na=False))
-        ]
-        
-        # 수량 숫자 데이터로 변환
+        # 노이즈 행 제거
+        df = df[(df['Case #'] != "") & (df['Case #'] != "nan") & 
+                (~df['Case #'].str.contains("Deliver|Remake|작업량|세후|할당량|Year|Month|Date|NAME", na=False))]
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df.reset_index(drop=True)
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 m_df = get_clean_data()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
@@ -72,7 +62,6 @@ t1, t2, t3 = st.tabs(["📝 케이스 등록", "💰 이번 달 정산", "🔍 �
 with t1:
     it = st.session_state.iter_count
     st.subheader("📋 새 케이스 정보 입력")
-    
     c1, c2, c3 = st.columns(3)
     with c1:
         case_no = st.text_input("Case # *", key=f"c_{it}")
@@ -106,94 +95,4 @@ with t1:
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
     with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
-        all_vals = ref_df.iloc[:, 3:].values.flatten()
-        chk_opts = sorted(list(set([str(i) for i in all_vals if i and str(i).lower() != 'nan'])))
-        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"chk_{it}")
-        img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
-        memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
-
-    if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
-        if not case_no or f_cl in ["선택", ""]:
-            st.error("⚠️ Case #와 Clinic은 필수입니다.")
-        else:
-            p_u = 180
-            if sel_cl not in ["선택", "➕ 직접"]:
-                try: p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
-                except: p_u = 180
-            
-            save_rd = "-" if is_3d else rd.strftime('%Y-%m-%d')
-            save_rt = "-" if is_3d else rt.strftime('%H:%M')
-            final_notes = ", ".join(chks) + (f" | {memo}" if memo else "")
-            
-            new_row = pd.DataFrame([{
-                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
-                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
-                "Receipt Date": save_rd, "Receipt Time": save_rt,
-                "Completed Date": comp_d.strftime('%Y-%m-%d'), 
-                "Shipping Date": ship_d.strftime('%Y-%m-%d'), 
-                "Due Date": due_d.strftime('%Y-%m-%d'),
-                "Status": stat, "Notes": final_notes
-            }])
-            
-            try:
-                conn.update(data=pd.concat([m_df, new_row], ignore_index=True))
-                st.balloons()
-                time.sleep(1)
-                force_reset()
-            except Exception as e:
-                st.error(f"저장 오류: {e}")
-
-# --- [TAB 2: 이번 달 정산] ---
-with t2:
-    cur_m, cur_y = datetime.now().month, datetime.now().year
-    st.subheader(f"📊 {cur_y}년 {cur_m}월 정산 현황")
-    
-    if not m_df.empty:
-        pdf = m_df.copy()
-        pdf['S_Date_Conv'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
-        m_data = pdf[(pdf['S_Date_Conv'].dt.month == cur_m) & (pdf['S_Date_Conv'].dt.year == cur_y) & (pdf['Status'].str.lower() == 'normal')]
-        
-        if not m_data.empty:
-            summary_df = m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            # 💡 행 번호 대신 M열(13번째 열)을 Pan No.로 사용
-            try:
-                m_col_name = m_df.columns[12]
-                summary_df.index = m_data[m_col_name]
-                summary_df.index.name = "Pan No."
-            except: pass
-
-            st.dataframe(summary_df, use_container_width=True)
-            total_qty = m_data['Qty'].sum()
-            pay = total_qty * 19.505333
-            st.metric("수량/수당", f"{int(total_qty)} 개 / ${pay:,.2f}")
-            
-            # 이미지 생성 로직
-            def create_pay_image(df, total_q, total_p):
-                img = Image.new('RGB', (800, 400 + (len(df) * 35)), color=(255, 255, 255))
-                d = ImageDraw.Draw(img)
-                d.text((50, 40), f"Skycad Lab Settlement - {cur_y}/{cur_m}", fill=(0,0,0))
-                d.text((50, 100), f"Total Qty: {int(total_q)} | Total Pay: ${total_p:,.2f}", fill=(0,0,255))
-                y_offset = 180
-                for idx, row in df.iterrows():
-                    txt = f"[{idx}] {row['Shipping Date']} | {row['Clinic'][:10]} | {row['Patient'][:10]} | {int(row['Qty'])}ea"
-                    d.text((50, y_offset), txt, fill=(50,50,50))
-                    y_offset += 30
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                return buf.getvalue()
-
-            st.download_button("📸 정산 내역 이미지로 저장", create_pay_image(summary_df, total_qty, pay), f"Settlement_{cur_m}.png", "image/png")
-        else: st.info("정산할 데이터가 없습니다.")
-
-# --- [TAB 3: 케이스 검색] ---
-with t3:
-    st.subheader("🔍 케이스 통합 검색")
-    q = st.text_input("환자 이름 또는 Case #를 입력하세요", key="search_bar")
-    if not m_df.empty:
-        if q:
-            res = m_df[m_df['Patient'].str.contains(q, case=False, na=False) | m_df['Case #'].str.contains(q, case=False, na=False)]
-            if not res.empty:
-                st.dataframe(res[['Case #', 'Clinic', 'Patient', 'Shipping Date', 'Status']], use_container_width=True)
-            else: st.info("결과가 없습니다.")
-        else:
-            st.dataframe(m_df.tail(15), use_container_width=True)
+        all_vals = ref_df.iloc[:, 3
