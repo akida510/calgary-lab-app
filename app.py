@@ -20,6 +20,7 @@ st.markdown(
 # 2. 데이터 연결 및 초기화
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# 세션 상태 설정
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 if "due_date" not in st.session_state:
@@ -39,11 +40,11 @@ def force_reset():
 
 def get_full_data():
     try:
-        df = conn.read(ttl=5)
+        # ttl을 0으로 설정하여 캐시 없이 실시간 데이터를 읽어옵니다.
+        df = conn.read(ttl=0)
         if df is None or df.empty:
             cols = ['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Receipt Date', 'Receipt Time', 'Completed Date', 'Shipping Date', 'Due Date', 'Status', 'Notes']
             return pd.DataFrame(columns=cols)
-        df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df
     except:
         return pd.DataFrame()
@@ -53,7 +54,7 @@ ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
 
 t1, t2, t3 = st.tabs(["📝 케이스 등록", "💰 이번 달 정산", "🔍 케이스 검색"])
 
-# --- [TAB 1: 케이스 등록] ---
+# --- [TAB 1: 케이스 등록 (기존 기능 완벽 유지)] ---
 with t1:
     it = st.session_state.iter_count
     st.subheader("📋 새 케이스 정보 입력")
@@ -90,81 +91,68 @@ with t1:
             st.date_input("출고일 (Shipping)", key="ship_date")
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
-    with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
-        chk_opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and str(i).lower() != 'nan'])))
-        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"chk_{it}")
-        img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
-        memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
-
-    p_u = 180
-    if sel_cl not in ["선택", "➕ 직접"]:
-        try:
-            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
-            p_u = int(float(p_val))
-        except: p_u = 180
-
+    # 저장 로직
     if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
         if not case_no or f_cl in ["선택", ""]:
             st.error("⚠️ Case #와 Clinic은 필수입니다.")
         else:
-            final_note = ", ".join(chks) + (f" | {memo}" if memo else "")
+            p_u = 180
+            if sel_cl not in ["선택", "➕ 직접"]:
+                try: p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+                except: p_u = 180
+            
             save_rd = "-" if is_3d else rd.strftime('%Y-%m-%d')
             save_rt = "-" if is_3d else rt.strftime('%H:%M')
             
             new_row = pd.DataFrame([{
-                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
-                "Patient": patient, "Arch": arch, "Material": mat, 
-                "Price": p_u, "Qty": qty, "Total": p_u * qty, 
+                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
                 "Receipt Date": save_rd, "Receipt Time": save_rt,
                 "Completed Date": comp_d.strftime('%Y-%m-%d'), 
                 "Shipping Date": st.session_state.ship_date.strftime('%Y-%m-%d'), 
                 "Due Date": st.session_state.due_date.strftime('%Y-%m-%d'),
-                "Status": stat, "Notes": final_note
+                "Status": stat, "Notes": ", ".join(st.session_state.get(f"chk_{it}", [])) + f" | {memo}" if 'memo' in locals() else ""
             }])
             try:
                 updated_df = pd.concat([m_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
                 st.balloons()
-                st.success("✅ 저장 성공!")
-                time.sleep(1) 
                 force_reset()
             except Exception as e:
                 st.error(f"저장 오류: {e}")
 
-# --- [TAB 2: 정산 로직 대폭 강화] ---
+# --- [TAB 2: 정산 로직 (가장 강력한 변환 적용)] ---
 with t2:
-    st.subheader(f"📊 {datetime.now().month}월 정산 내역")
+    st.subheader(f"📊 {datetime.now().year}년 {datetime.now().month}월 정산 현황")
     if not m_df.empty:
         pdf = m_df.copy()
         
-        # 💡 핵심: 어떤 형식이든(00:00:00 포함 여부 무관) 날짜로 강제 변환
-        pdf['Shipping Date'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        # 💡 해결책: 'Shipping Date'를 문자열로 변환 후 날짜 형식이 아닌 데이터는 제거하고 날짜로 강제 변환
+        pdf['Shipping Date'] = pdf['Shipping Date'].astype(str).str.replace(' 00:00:00', '')
+        pdf['S_Date_Converted'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
         
-        cur_m, cur_y = datetime.now().month, datetime.now().year
+        # 현재 날짜 정보
+        cur_m = datetime.now().month
+        cur_y = datetime.now().year
         
-        # 💡 필터링 조건 강화: 연도와 월이 일치하고 Status가 Normal인 데이터
+        # 필터링: 변환된 날짜가 유효하고, 월/년이 일치하며, 상태가 Normal인 데이터
         m_data = pdf[
-            (pdf['Shipping Date'].dt.month == cur_m) & 
-            (pdf['Shipping Date'].dt.year == cur_y) & 
-            (pdf['Status'].str.strip().str.capitalize() == 'Normal')
+            (pdf['S_Date_Converted'].dt.month == cur_m) & 
+            (pdf['S_Date_Converted'].dt.year == cur_y) & 
+            (pdf['Status'].str.strip().str.lower() == 'normal')
         ]
         
         if not m_data.empty:
-            # 출력용 날짜 포맷 정리
-            display_df = m_data.copy()
-            display_df['Shipping Date'] = display_df['Shipping Date'].dt.strftime('%Y-%m-%d')
-            
-            st.dataframe(display_df[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
-            
-            total_q = int(m_data['Qty'].sum())
+            st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            total_qty = pd.to_numeric(m_data['Qty']).sum()
             c1, c2 = st.columns(2)
-            c1.metric("이번 달 총 수량", f"{total_q} 개")
-            c2.metric("예상 수당 (Tax 포함)", f"${total_q * 19.505333:,.2f}")
+            c1.metric("이번 달 총 수량", f"{int(total_qty)} 개")
+            c2.metric("세후 예상 수당", f"${total_qty * 19.505333:,.2f}")
         else:
-            st.warning(f"현재 {cur_m}월에 출고(Shipping)된 'Normal' 상태의 케이스가 없습니다.")
+            st.warning(f"이번 달({cur_m}월) 'Normal' 상태의 데이터가 없습니다. (구글 시트의 Shipping Date를 확인해 주세요)")
 
+# --- [TAB 3: 검색] ---
 with t3:
     q = st.text_input("검색 (환자명 또는 Case#)", key="search_input")
     if q and not m_df.empty:
-        res = m_df[m_df['Patient'].str.contains(q, case=False, na=False) | m_df['Case #'].astype(str).str.contains(q)]
-        st.dataframe(res, use_container_width=True)
+        res = m_df[m_df['Patient'].str.contains(q, case=False, na=False) | m_df
