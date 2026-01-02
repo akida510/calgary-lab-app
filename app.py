@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# 1. 페이지 설정 및 제작자 표기
+# 1. 페이지 설정 및 제목/제작자 표기
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -61,10 +61,9 @@ with t1:
         case_no = st.text_input("Case # *", key=f"c_{it}")
         patient = st.text_input("Patient Name *", key=f"p_{it}")
     with c2:
+        cl_list = []
         if not ref_df.empty:
             cl_list = sorted([c for c in ref_df.iloc[:, 1].unique() if c and str(c).lower() not in ['nan', 'clinic']])
-        else:
-            cl_list = []
         sel_cl = st.selectbox("Clinic *", ["선택"] + cl_list + ["➕ 직접"], key=f"cl_{it}")
         f_cl = st.text_input("클리닉명 입력", key=f"fcl_{it}") if sel_cl == "➕ 직접" else sel_cl
     with c3:
@@ -87,25 +86,4 @@ with t1:
             rt = st.time_input("접수 시간 (Time)", datetime.now(), key=f"rt_{it}", disabled=is_3d)
             comp_d = st.date_input("완료일 (Completed)", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            due_v = st.date_input("마감일 (Due Date)", datetime.now() + timedelta(7), key=f"due_{it}")
-            ship_d = st.date_input("출고일 (Shipping)", due_v - timedelta(2), key=f"sd_{it}")
-            stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
-
-    with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
-        if not ref_df.empty:
-            chk_opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and str(i).lower() != 'nan'])))
-        else:
-            chk_opts = []
-        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"chk_{it}")
-        img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
-        memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
-
-    # 단가 계산 로직
-    p_u = 180
-    if not ref_df.empty and sel_cl not in ["선택", "➕ 직접"]:
-        try:
-            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
-            p_u = int(float(p_val))
-        except: p_u = 180
-
-    if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
+            due_v
