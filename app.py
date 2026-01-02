@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# 1. 초기 설정
+# 1. 초기 설정 및 데이터 로드
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("### 🦷 Skycad Lab Manager <span style='font-size:0.8rem;color:#888;'>by Heechul Jung</span>", unsafe_allow_html=True)
 
@@ -79,8 +79,4 @@ with t1:
         else:
             p_u = 180
             if sel_cl not in ["선택","➕ 직접"]:
-                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,3]))
-                except: p_u = 180
-            new_r = pd.DataFrame([{"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":"-" if is_33 else rd.strftime('%Y-%m-%d'),"Completed Date":cp.strftime('%Y-%m-%d'),"Shipping Date":sh.strftime('%Y-%m-%d'),"Due Date":du.strftime('%Y-%m-%d'),"Status":stt,"Notes":", ".join(chks)+" | "+memo}])
-            try:
-                conn.update(data=pd
+                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,
