@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# 1. 페이지 설정 및 제작자 표기
+# 1. 페이지 설정 및 제목/제작자 표기
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -73,13 +73,13 @@ with t1:
             qty = st.number_input("Qty", min_value=1, value=1, key=f"q_{it}")
         with d2:
             is_3d = st.checkbox("3D 모델 기반 (스캔)", value=True, key=f"3d_{it}")
-            rd = st.date_input("접수일", datetime.now(), key=f"rd_{it}")
-            rt = st.time_input("접수 시간", datetime.now(), key=f"rt_{it}", disabled=is_3d)
-            comp_d = st.date_input("완료일", datetime.now() + timedelta(1), key=f"cd_{it}")
+            # 💡 3D 모델일 때는 입력창을 비활성화(disabled)하여 혼동 방지
+            rd = st.date_input("접수일 (Receipt Date)", datetime.now(), key=f"rd_{it}", disabled=is_3d)
+            rt = st.time_input("접수 시간 (Time)", datetime.now(), key=f"rt_{it}", disabled=is_3d)
+            comp_d = st.date_input("완료일 (Completed)", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            # 💡 마감일을 먼저 입력받고
             due_v = st.date_input("마감일 (Due Date)", datetime.now() + timedelta(7), key=f"due_{it}")
-            # 💡 출고일의 기본값을 마감일 - 2일로 실시간 연동
+            # 💡 마감일 변경 시 출고일 자동 연동 (-2일)
             ship_d = st.date_input("출고일 (Shipping)", value=(due_v - timedelta(days=2)), key=f"sd_{it}")
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
@@ -89,10 +89,8 @@ with t1:
         img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
         memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
 
-    # 단가 및 저장 로직 (이전 버전과 동일)
+    # 단가 계산 로직
     p_u = 180
     if sel_cl not in ["선택", "➕ 직접"]:
         try:
-            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
-            p_u = int(float(p_val))
-        except: p_u = 18
+            p_val = ref_df[ref_df.iloc[:,
