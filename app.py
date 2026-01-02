@@ -8,16 +8,20 @@ st.set_page_config(page_title="Skycad Lab", layout="wide")
 st.write("### 🦷 Skycad Lab Manager")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
-if "it" not in st.session_state: st.session_state.it = 0
+if "it" not in st.session_state: 
+    st.session_state.it = 0
 
 def upd_s():
     if 'd_k' in st.session_state:
         d = st.session_state.d_k
-        if isinstance(d, str): d = datetime.strptime(d, '%Y-%m-%d').date()
+        if isinstance(d, str): 
+            d = datetime.strptime(d, '%Y-%m-%d').date()
         st.session_state.s_k = d - timedelta(days=2)
 
-if 'd_k' not in st.session_state: st.session_state.d_k = date.today() + timedelta(days=7)
-if 's_k' not in st.session_state: st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
+if 'd_k' not in st.session_state: 
+    st.session_state.d_k = date.today() + timedelta(days=7)
+if 's_k' not in st.session_state: 
+    st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
 
 @st.cache_data(ttl=5)
 def get_d():
@@ -27,12 +31,14 @@ def get_d():
         df = df[(df['Case #']!="") & (df['Case #']!="nan")]
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df.reset_index(drop=True)
-    except: return pd.DataFrame()
+    except: 
+        return pd.DataFrame()
 
 m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
+# --- [TAB 1: 등록] ---
 with t1:
     i = st.session_state.it
     st.subheader("📋 입력")
@@ -40,7 +46,8 @@ with t1:
     case_no = c1.text_input("Case #", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
     
-    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    cl_raw = ref_df.iloc[:,1].unique()
+    cl_list = sorted([c for c in cl_raw if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic", ["선택"]+cl_list+["➕ 직접"], key=f"cl{i}")
     f_cl = c2.text_input("클리닉명", key=f"fcl{i}") if sel_cl=="➕ 직접" else sel_cl
     
@@ -64,18 +71,20 @@ with t1:
             due = d3.date_input("마감일", key="d_k", on_change=upd_s)
             shp = d3.date_input("출고일", key="s_k")
             s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st{i}") if due==shp else ""
-        else: due = shp = s_t = None
-        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
+        else: 
+            due = shp = s_t = None
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
     if st.button("🚀 저장", use_container_width=True):
-        if not case_no or f_cl in ["선택",""]: st.error("정보부족")
+        if not case_no or f_cl in ["선택",""]: 
+            st.error("Case #와 Clinic은 필수입니다.")
         else:
             try:
                 p_u = 180
                 if sel_cl not in ["선택","➕ 직접"]:
-                    # 💡 잘림 방지를 위해 한 줄로 처리
                     p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,3]))
-            except: p_u = 180
+            except: 
+                p_u = 180
             
             dfmt = '%Y-%m-%d'
             frd = "-" if is_33 else rd.strftime(dfmt)
@@ -89,8 +98,43 @@ with t1:
             try:
                 new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
                 conn.update(data=new_df)
-                st.success("완료!"); time.sleep(1)
-                st.session_state.it += 1; st.cache_data.clear(); st.rerun()
-            except Exception as e: st.error(f"Error: {e}")
+                st.success("저장 완료!")
+                time.sleep(1)
+                st.session_state.it += 1
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as e: 
+                st.error(f"저장 실패: {e}")
 
-with t2
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader(f"📊 {date.today().month}월 정산")
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str.split().str[0], errors='coerce')
+        cur_m = date.today().month
+        m_dt = pdf[(pdf['SD'].dt.month == cur_m) & (pdf['Status'] == 'Normal')]
+        
+        if not m_dt.empty:
+            v_cols = ['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
+            v_df = m_dt[v_cols].copy()
+            # 💡 180달러 에러 원천차단: M열(13번째 열)을 인덱스로 사용
+            try:
+                v_df.index = m_dt.iloc[:, 12]
+                v_df.index.name = "Pan No."
+            except:
+                v_df.index.name = "No."
+            st.dataframe(v_df, use_container_width=True)
+            
+            sq = int(m_dt['Qty'].sum())
+            sp = m_dt['Qty'].sum() * 19.505333
+            st.metric("합계", f"{sq} ea / ${sp:,.2f}")
+        else:
+            st.info("이번 달 정산 데이터가 없습니다.")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    qs = st.text_input("검색어 입력", key="sb")
+    if not m_df.empty:
+        res = m_df[m_df['Patient'].str.contains(qs,False,False)|m_df['Case #'].str.contains(qs,False,False)] if qs else m_df.tail(15)
+        st.dataframe(res[['Case #','Clinic','Patient','Shipping Date','Status']], use_container_width=True)
