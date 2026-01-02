@@ -71,4 +71,40 @@ with t1:
         else:
             p_u = 180
             if sel_cl not in ["선택","➕ 직접"]:
-                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,
+                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,3]))
+                except: p_u = 180
+            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":"-" if is_33 else rd.strftime('%Y-%m-%d'),"Completed Date":cp.strftime('%Y-%m-%d'),"Shipping Date":shp.strftime('%Y-%m-%d'),"Due Date":due.strftime('%Y-%m-%d'),"Status":stt,"Notes":", ".join(chks)+" | "+memo}
+            try:
+                conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
+                st.success("성공적으로 저장되었습니다!"); time.sleep(1)
+                st.session_state.it += 1; st.cache_data.clear(); st.rerun()
+            except Exception as e: st.error(f"저장 오류: {e}")
+
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader(f"📊 {datetime.now().month}월 정산 현황")
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['S_D'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        m_dt = pdf[(pdf['S_D'].dt.month==datetime.now().month)&(pdf['Status'].str.lower()=='normal')]
+        if not m_dt.empty:
+            v_df = m_dt[['Shipping Date','Clinic','Patient','Qty','Status']].copy()
+            try: v_df.index = m_dt[m_df.columns[12]]; v_df.index.name = "Pan No."
+            except: pass
+            st.dataframe(v_df, use_container_width=True)
+            st.metric("이번 달 합계 수당", f"${m_dt['Qty'].sum()*19.505333:,.2f}")
+        else: st.info("이번 달 데이터가 없습니다.")
+
+# --- [TAB 3: 검색 (Unnamed 열 제거 완료)] ---
+with t3:
+    st.subheader("🔍 케이스 통합 검색")
+    qs = st.text_input("환자 이름 또는 Case # 입력", key="sb")
+    # 보여줄 핵심 열만 명시
+    sh = ['Case #','Clinic','Doctor','Patient','Arch','Material','Shipping Date','Status','Notes']
+    if not m_df.empty:
+        vc = [c for c in sh if c in m_df.columns]
+        if qs:
+            res = m_df[m_df['Patient'].str.contains(qs,case=False,na=False)|m_df['Case #'].str.contains(qs,case=False,na=False)]
+            st.dataframe(res[vc], use_container_width=True)
+        else:
+            st.dataframe(m_df[vc].tail(15), use_container_width=True)
