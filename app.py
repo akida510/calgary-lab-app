@@ -4,10 +4,10 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정
+# 1. 페이지 설정 및 상단 레이아웃
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
-# 제목 및 제작자 표시 (우측 끝 정렬)
+# 제목과 제작자 정보를 한 줄에 배치 (굵고 작게)
 st.markdown(
     """
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -20,7 +20,7 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 관리 (입력창 초기화용)
+# 2. 세션 상태 관리 (입력창 초기화 및 날짜 연동용)
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
@@ -37,6 +37,7 @@ def sync_dates():
 
 def reset_fields():
     curr_i = st.session_state.it
+    # 날짜 세션 키 삭제
     for key in [f"due{curr_i}", f"shp{curr_i}"]:
         if key in st.session_state: del st.session_state[key]
     st.session_state.it += 1
@@ -92,4 +93,62 @@ with t1:
     with st.expander("✅ 체크리스트 & 메모 & 사진", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트 선택", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
-        memo = st.text_input("
+        memo = st.text_input("추가 메모", key=f"me{i}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+
+    if st.button("🚀 시트에 저장하기", use_container_width=True):
+        if not case_no or f_cl in ["선택", ""]: st.error("Case #와 Clinic 정보를 확인하세요.")
+        else:
+            p_u = 180
+            try:
+                if sel_cl not in ["선택", "➕ 직접"]:
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+            except: p_u = 180
+            dfmt = '%Y-%m-%d'
+            row = {
+                "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
+                "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
+                "Completed Date": cp.strftime(dfmt),
+                "Shipping Date": (shp.strftime(dfmt) if shp else "-"),
+                "Due Date": (due.strftime(dfmt) if due else "-"),
+                "Status": stt, "Notes": ", ".join(chks) + (f" | {memo}" if memo else "")
+            }
+            conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
+            st.success("데이터 저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
+
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader("💰 월별 정산 현황")
+    today = date.today()
+    c_y, c_m = st.columns(2)
+    sel_year = c_y.selectbox("연도", range(today.year, today.year - 5, -1))
+    sel_month = c_m.selectbox("월", range(1, 13), index=today.month - 1)
+    
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
+        m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
+        if not m_dt.empty:
+            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
+            v_df.index = m_dt['Case #']; v_df.index.name = "Case #"
+            st.dataframe(v_df, use_container_width=True)
+            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
+            total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
+            extra_qty = max(0, total_qty - 320)
+            m1, m2, m3 = st.columns(3)
+            m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
+            m2.metric("엑스트라(320개 초과)", f"{int(extra_qty)} ea")
+            m3.metric("엑스트라 정산금액", f"${extra_qty * 19.505333:,.2f}")
+        else: st.info("데이터가 없습니다.")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    st.subheader("🔍 검색")
+    qs = st.text_input("환자명 또는 Case # 입력", key="search_bar")
+    if not m_df.empty:
+        if qs:
+            f_df = m_df[m_df['Case #'].str.contains(qs, case=False, na=False) | m_df['Patient'].str.contains(qs, case=False, na=False)]
+            st.dataframe(f_df, use_container_width=True)
+        else:
+            st.dataframe(m_df.tail(20), use_container_width=True)
