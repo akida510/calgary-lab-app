@@ -3,23 +3,16 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta
 import time
-from PIL import Image, ImageDraw
-import io
 
-# 1. 페이지 및 데이터 초기 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
-st.markdown("### 🦷 Skycad Lab Night Guard Manager <span style='font-size:0.8rem;color:#888;'>by Heechul Jung</span>", unsafe_allow_html=True)
+st.markdown("### 🦷 Skycad Lab Manager <span style='font-size:0.8rem;color:#888;'>by Heechul Jung</span>", unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
 
-def update_ship(): 
-    st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
-
-if 'd_k' not in st.session_state: 
-    st.session_state.d_k = datetime.now().date() + timedelta(days=7)
-if 's_k' not in st.session_state: 
-    st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
+def update_ship(): st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
+if 'd_k' not in st.session_state: st.session_state.d_k = datetime.now().date() + timedelta(days=7)
+if 's_k' not in st.session_state: st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
 
 def reset():
     st.session_state.it += 1
@@ -33,15 +26,12 @@ def get_data():
         df = df[(df['Case #']!="")&(df['Case #']!="nan")&(~df['Case #'].str.contains("Deliver|Remake|작업량|세후|할당량",na=False))]
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df.reset_index(drop=True)
-    except: 
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 m_df = get_data()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
-
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] ---
 with t1:
     i = st.session_state.it
     st.subheader("📋 케이스 입력")
@@ -73,4 +63,12 @@ with t1:
             comp_d = st.date_input("완료일", datetime.now()+timedelta(1), key=f"cd{i}")
         with d3:
             due_d = st.date_input("마감일", key="d_k", on_change=update_ship)
-            ship_d = st.
+            ship_d = st.date_input("출고일", key="s_k")
+            stat = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
+
+    with st.expander("✅ 기타", expanded=True):
+        chk_opts = sorted(list(set([str(x) for x in ref_df.iloc[:,3:].values.flatten() if x and str(x)!='nan'])))
+        chks = st.multiselect("체크리스트", chk_opts, key=f"ck{i}")
+        memo = st.text_input("메모", key=f"me{i}")
+
+    if st.
