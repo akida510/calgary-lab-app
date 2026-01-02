@@ -12,6 +12,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
+# 날짜 자동 계산 함수
 def upd_s():
     if 'd_k' in st.session_state:
         d = st.session_state.d_k
@@ -75,21 +76,21 @@ with t1:
             due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    # ✅ 체크리스트 및 사진 업로드 기능 복구
+    # ✅ 체크리스트 및 사진 업로드 (복구 완료)
     with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg','png','jpeg'], key=f"img{i}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
         memo = st.text_input("메모", key=f"me{i}")
 
-    if st.button("🚀 저장", use_container_width=True):
-        if not case_no or f_cl in ["선택",""]: 
-            st.error("Case #와 Clinic은 필수입니다.")
+    if st.button("🚀 데이터 저장", use_container_width=True):
+        if not case_no or f_cl in ["선택", ""]: 
+            st.error("Case #와 Clinic은 필수 항목입니다.")
         else:
             try:
                 p_u = 180
-                if sel_cl not in ["선택","➕ 직접"]:
-                    p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,3]))
+                if sel_cl not in ["선택", "➕ 직접"]:
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
             except: p_u = 180
             
             dfmt = '%Y-%m-%d'
@@ -98,42 +99,17 @@ with t1:
             fshp = shp.strftime(dfmt) if has_d else "-"
             if has_d and s_t: fshp = f"{fshp} {s_t}"
             
-            row = {"Case #":case_no, "Clinic":f_cl, "Doctor":f_doc, "Patient":patient, "Arch":arch, "Material":mat, "Price":p_u, "Qty":qty, "Total":p_u*qty, "Receipt Date":frd, "Completed Date":fcp, "Shipping Date":fshp, "Due Date":fdue, "Status":stt, "Notes":", ".join(chks) + " | " + memo}
+            row = {
+                "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
+                "Receipt Date": frd, "Completed Date": fcp, "Shipping Date": fshp,
+                "Due Date": fdue, "Status": stt, "Notes": ", ".join(chks) + " | " + memo
+            }
             try:
                 new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
                 conn.update(data=new_df)
-                st.success("저장 완료!"); time.sleep(1)
+                st.success("저장되었습니다!"); time.sleep(1)
                 st.session_state.it += 1; st.cache_data.clear(); st.rerun()
-            except Exception as e: st.error(f"Error: {e}")
+            except Exception as e: st.error(f"저장 중 오류 발생: {e}")
 
-# --- [TAB 2: 정산] ---
-with t2:
-    st.subheader(f"📊 {date.today().month}월 정산")
-    if not m_df.empty:
-        pdf = m_df.copy()
-        pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str.split().str[0], errors='coerce')
-        m_dt = pdf[(pdf['SD'].dt.month == date.today().month) & (pdf['Status'] == 'Normal')]
-        
-        if not m_dt.empty:
-            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            # 💡 180.0 오류 해결: 열 이름에서 'Price' 제외하고 'Pan'이나 'No' 포함된 진짜 번호열 찾기
-            try:
-                pan_col = [c for c in m_dt.columns if ('No' in c or 'Pan' in c) and 'Price' not in c and 'Case' not in c]
-                if pan_col: v_df.index = m_dt[pan_col[0]]
-                else: v_df.index = m_dt.iloc[:, -3] # 이름 못찾을 시 뒤에서 3번째 열 시도
-                v_df.index.name = "Pan No."
-            except: v_df.index.name = "No."
-                
-            st.dataframe(v_df, use_container_width=True)
-            sq, sp = int(m_dt['Qty'].sum()), m_dt['Qty'].sum() * 19.505333
-            st.metric("합계", f"{sq} ea / ${sp:,.2f}")
-        else: st.info("데이터 없음")
-
-# --- [TAB 3: 검색] ---
-with t3:
-    qs = st.text_input("검색", key="sb")
-    if not m_df.empty:
-        sh = ['Case #','Clinic','Doctor','Patient','Arch','Material','Shipping Date','Status','Notes']
-        vc = [c for c in sh if c in m_df.columns]
-        res = m_df[m_df['Patient'].str.contains(qs,False,False)|m_df['Case #'].str.contains(qs,False,False)] if qs else m_df.tail(15)
-        st.dataframe(res[vc], use_container_width=True)
+#
