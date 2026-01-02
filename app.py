@@ -4,42 +4,42 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# 1. 페이지 설정 및 제목/제작자 표기
+# 1. 페이지 설정 및 제목/제작자 표기 (Heechul Jung으로 수정)
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
     """
     <div style="display: flex; align-items: baseline;">
         <h1 style="margin-right: 15px;">🦷 Skycad Lab Night Guard Manager</h1>
-        <span style="font-size: 0.9rem; color: #888;">Designed by Alex Jung</span>
+        <span style="font-size: 0.9rem; color: #888;">Designed by Heechul Jung</span>
     </div>
     """, 
     unsafe_allow_html=True
 )
 
-# 2. 데이터 연결 함수
+# 2. 데이터 연결
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_full_data():
     try:
-        df = conn.read(ttl=60)
+        df = conn.read(ttl=10)
         if df is None or df.empty:
-            return pd.DataFrame(columns=['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Shipping Date', 'Due Date', 'Status', 'Notes'])
+            return pd.DataFrame(columns=['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Receipt Date', 'Completed Date', 'Shipping Date', 'Due Date', 'Status', 'Notes'])
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
-        df['Shipping Date'] = df['Shipping Date'].astype(str).str.strip()
-        df['Status'] = df['Status'].astype(str).str.strip()
         return df
-    except Exception as e:
+    except:
         return pd.DataFrame()
 
 m_df = get_full_data()
 
+# 레퍼런스 데이터 로드
 try:
     ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
     ref_df = ref_df.apply(lambda x: x.str.strip())
 except:
     ref_df = pd.DataFrame()
 
+# 입력창 초기화용 세션 상태
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 
@@ -82,24 +82,42 @@ with t1:
             mat = st.selectbox("Material", ["Thermo", "Dual", "Soft", "Hard"], key=f"mat_{it}")
             qty = st.number_input("Qty", min_value=1, value=1, key=f"q_{it}")
         with d2:
-            comp_d = st.date_input("완료일", datetime.now() + timedelta(1), key=f"cd_{it}")
-            due_v = st.date_input("마감일(Due Date)", datetime.now() + timedelta(7), key=f"due_{it}")
+            is_3d = st.checkbox("3D 모델 기반 (스캔)", value=True, key=f"3d_{it}")
+            rd = st.date_input("접수일 (Receipt Date)", datetime.now(), key=f"rd_{it}")
+            comp_d = st.date_input("완료일 (Completed)", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            ship_d = st.date_input("출고일(Shipping)", due_v - timedelta(2), key=f"sd_{it}")
+            due_v = st.date_input("마감일 (Due Date)", datetime.now() + timedelta(7), key=f"due_{it}")
+            # 마감일 변경 시 출고일 자동 연동 로직
+            ship_d = st.date_input("출고일 (Shipping)", due_v - timedelta(2), key=f"sd_{it}")
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
-    memo = st.text_input("메모 / 체크리스트", key=f"mem_{it}")
+    with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
+        if not ref_df.empty:
+            chk_opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and i.lower() != 'nan'])))
+        else:
+            chk_opts = []
+        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"chk_{it}")
+        img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
+        memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
 
-    if st.button("🚀 데이터 저장", use_container_width=True):
+    p_u = 180
+    if not ref_df.empty and sel_cl not in ["선택", "➕ 직접"]:
+        try:
+            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
+            p_u = int(float(p_val))
+        except: p_u = 180
+
+    if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
         if not case_no or f_cl in ["선택", ""]:
             st.error("⚠️ 필수 항목을 입력해주세요.")
         else:
-            # 이 부분이 에러가 났던 지점입니다. 들여쓰기를 정확히 맞췄습니다.
-            final_note = str(memo)
+            final_note = ", ".join(chks) + (f" | {memo}" if memo else "")
             new_row = pd.DataFrame([{
                 "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
                 "Patient": patient, "Arch": arch, "Material": mat, 
-                "Price": 180, "Qty": qty, "Total": 180 * qty, 
+                "Price": p_u, "Qty": qty, "Total": p_u * qty, 
+                "Receipt Date": rd.strftime('%Y-%m-%d') if not is_3d else "3D Scan",
+                "Completed Date": comp_d.strftime('%Y-%m-%d'), 
                 "Shipping Date": ship_d.strftime('%Y-%m-%d'), 
                 "Due Date": due_v.strftime('%Y-%m-%d'),
                 "Status": stat, "Notes": final_note
@@ -107,7 +125,8 @@ with t1:
             try:
                 updated_df = pd.concat([m_df, new_row], ignore_index=True)
                 conn.update(data=updated_df)
-                st.success("✅ 저장 성공!")
+                st.balloons()
+                st.success("✅ 저장 성공! 입력창을 초기화합니다.")
                 time.sleep(1) 
                 force_reset()
             except Exception as e:
@@ -127,7 +146,7 @@ with t2:
             total_q = int(m_data['Qty'].sum())
             c1, c2 = st.columns(2)
             c1.metric("정산 수량", f"{total_q} 개")
-            c2.metric("예상 수당", f"${total_q * 19.505333:,.2f}")
+            c2.metric("세후 예상 수당", f"${total_q * 19.505333:,.2f}")
         else:
             st.warning("조건에 맞는 데이터가 없습니다.")
 
