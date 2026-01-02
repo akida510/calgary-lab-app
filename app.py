@@ -4,7 +4,6 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 초기 설정
 st.set_page_config(page_title="Skycad Lab", layout="wide")
 st.write("### 🦷 Skycad Lab Manager")
 
@@ -15,10 +14,9 @@ if "it" not in st.session_state:
 @st.cache_data(ttl=2)
 def get_d():
     try:
-        # 데이터 로드 시 모든 열을 문자로 읽어옴
         df = conn.read(ttl=0).astype(str)
+        # 'Case #'라는 문자열이 들어있는 행만 유지 (공백 제거)
         df = df[df['Case #'].str.strip() != ""]
-        df = df[df['Case #'].str.lower() != "nan"]
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
     except: return pd.DataFrame()
@@ -27,7 +25,7 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] (중략 - 안정성 유지) ---
+# --- [TAB 1: 등록] (생략 - 기존과 동일) ---
 with t1:
     i = st.session_state.it
     st.subheader("📋 입력")
@@ -62,6 +60,12 @@ with t1:
         else: due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
+    with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
+        chk_raw = ref_df.iloc[:,3:].values.flatten()
+        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+        memo = st.text_input("메모", key=f"me{i}")
+
     if st.button("🚀 데이터 저장", use_container_width=True):
         if not case_no or f_cl in ["선택", ""]: st.error("정보 부족")
         else:
@@ -75,7 +79,7 @@ with t1:
             fdue = due.strftime(dfmt) if has_d else "-"
             fshp = shp.strftime(dfmt) if has_d else "-"
             if has_d and s_t: fshp = f"{fshp} {s_t}"
-            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":frd,"Completed Date":fcp,"Shipping Date":fshp,"Due Date":fdue,"Status":stt}
+            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":frd,"Completed Date":fcp,"Shipping Date":fshp,"Due Date":fdue,"Status":stt,"Notes":", ".join(chks)+" | "+memo}
             try:
                 new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
                 conn.update(data=new_df)
@@ -85,7 +89,7 @@ with t1:
 
 # --- [TAB 2: 정산] ---
 with t2:
-    st.subheader(f"📊 {date.today().month}월 정산 (Pan No. M열 고정)")
+    st.subheader(f"📊 {date.today().month}월 정산 (M열 위치 자동 추적)")
     if not m_df.empty:
         pdf = m_df.copy()
         pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
@@ -95,15 +99,13 @@ with t2:
             v_cols = ['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
             v_df = m_dt[v_cols].copy()
             
-            # 💡 M열(시트상 13번째 열) 데이터 추출 로직
-            # iloc[:, 12]가 'Price'(180)를 가져오는 경우를 대비해 위치를 재검증
+            # 💡 핵심 로직: 'Case #' 열의 위치를 찾고 거기서 12칸 뒤(M열)를 가져옴
             try:
-                # pandas read_gsheets 특성상 첫 열이 인덱스로 잡히거나 할 수 있으므로 
-                # M열의 정확한 위치를 다시 지정 (시트 순서: A(0),B(1)...M(12))
-                pan_data = m_dt.iloc[:, 12].values
-                v_df.index = pan_data
+                case_idx = list(m_dt.columns).index('Case #')
+                pan_col_idx = case_idx + 12 # A열이 Case#라면 0+12=12(M열)
+                v_df.index = m_dt.iloc[:, pan_col_idx]
                 v_df.index.name = "Pan No."
-            except:
+            except Exception as e:
                 v_df.index.name = "No."
                 
             st.dataframe(v_df, use_container_width=True)
@@ -111,12 +113,11 @@ with t2:
             pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
             t_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
             st.metric("합계 (Normal)", f"{int(t_qty)} ea / ${t_qty*19.505333:,.2f}")
-        else: st.info("이번 달 정산 데이터가 없습니다.")
+        else: st.info("이번 달 데이터 없음")
 
 # --- [TAB 3: 검색] ---
 with t3:
-    st.subheader("🔍 검색")
-    qs = st.text_input("환자명/Case # 입력", key="sb")
+    qs = st.text_input("검색", key="sb")
     if not m_df.empty:
         res = m_df[m_df['Patient'].str.contains(qs, case=False, na=False) | m_df['Case #'].str.contains(qs, case=False, na=False)] if qs else m_df.tail(20)
         st.dataframe(res, use_container_width=True)
