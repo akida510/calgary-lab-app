@@ -12,7 +12,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
-# 날짜 자동 계산 함수
+# 날짜 계산 (오류 방지)
 def upd_s():
     if 'd_k' in st.session_state:
         d_val = st.session_state.d_k
@@ -111,51 +111,4 @@ with t1:
             row = {
                 "Case #":case_no, "Clinic":f_cl, "Doctor":f_doc, "Patient":patient,
                 "Arch":arch, "Material":mat, "Price":p_u, "Qty":qty, "Total":p_u*qty,
-                "Receipt Date":"-" if is_33 else rd.strftime('%Y-%m-%d'),
-                "Completed Date":cp.strftime('%Y-%m-%d'), "Shipping Date":f_ship,
-                "Due Date":f_due, "Status":stt, "Notes":", ".join(chks)+" | "+memo
-            }
-            
-            try:
-                new_data = pd.DataFrame([row])
-                combined = pd.concat([m_df, new_data], ignore_index=True)
-                conn.update(data=combined)
-                st.success("저장 성공!")
-                time.sleep(1)
-                st.session_state.it += 1
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as e: 
-                st.error(f"오류: {e}")
-
-# --- [TAB 2: 정산] ---
-with t2:
-    st.subheader(f"📊 {date.today().month}월 정산")
-    if not m_df.empty:
-        pdf = m_df.copy()
-        pdf['S_D_Only'] = pd.to_datetime(pdf['Shipping Date'].str.split().str[0], errors='coerce')
-        m_dt = pdf[(pdf['S_D_Only'].dt.month==date.today().month) & (pdf['Status'].str.lower()=='normal')]
-        if not m_dt.empty:
-            v_cols = ['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
-            v_df = m_dt[v_cols].copy()
-            try: 
-                v_df.index = m_dt.iloc[:, 12] # M열 팬번호
-                v_df.index.name = "Pan No."
-            except: 
-                v_df.index.name = "No."
-            st.dataframe(v_df, use_container_width=True)
-            t_qty = int(m_dt['Qty'].sum())
-            t_pay = m_dt['Qty'].sum() * 19.505333
-            st.metric("합계", f"{t_qty} ea / ${t_pay:,.2f}")
-        else: 
-            st.info("데이터 없음")
-
-# --- [TAB 3: 검색] ---
-with t3:
-    st.subheader("🔍 검색")
-    qs = st.text_input("검색어 입력", key="sb")
-    sh = ['Case #','Clinic','Doctor','Patient','Arch','Material','Shipping Date','Status','Notes']
-    if not m_df.empty:
-        vc = [c for c in sh if c in m_df.columns]
-        res = m_df[m_df['Patient'].str.contains(qs,False,False)|m_df['Case #'].str.contains(qs,False,False)] if qs else m_df.tail(15)
-        st.dataframe(res[vc], use_container_width=True)
+                "Receipt Date":"-" if is_33 else rd.strftime('%Y-%
