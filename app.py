@@ -92,4 +92,4 @@ with t1:
     with st.expander("✅ 체크리스트 & 메모 & 사진", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트 선택", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
-        memo = st.text_input("추가 메모", key=f"
+        memo = st.text_input("
