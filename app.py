@@ -4,9 +4,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
-# 1. 초기 설정 및 데이터 로드
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
-st.markdown("### 🦷 Skycad Lab Manager <span style='font-size:0.8rem;color:#888;'>by Heechul Jung</span>", unsafe_allow_html=True)
+st.markdown("### 🦷 Skycad Lab Manager <span style='font-size:0.8rem;color:grey;'>by Heechul Jung</span>", unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
@@ -33,7 +32,6 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] ---
 with t1:
     i = st.session_state.it
     st.subheader("📋 입력")
@@ -64,19 +62,10 @@ with t1:
             rd = st.date_input("접수일", datetime.now(), key=f"rd{i}", disabled=is_33)
             cp = st.date_input("완료일", datetime.now()+timedelta(1), key=f"cd{i}")
         with d3:
-            du = st.date_input("마감일", key="d_k", on_change=upd_s)
-            sh = st.date_input("출고일", key="s_k")
+            due_d, ship_d = st.date_input("마감일", key="d_k", on_change=upd_s), st.date_input("출고일", key="s_k")
             stt = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
 
     with st.expander("✅ 기타", expanded=True):
         all_v = ref_df.iloc[:,3:].values.flatten()
         ck_o = sorted(list(set([str(x) for x in all_v if x and str(x)!='nan'])))
-        chks = st.multiselect("체크리스트", ck_o, key=f"ck{i}")
-        memo = st.text_input("메모", key=f"me{i}")
-
-    if st.button("🚀 저장하기", use_container_width=True):
-        if not case_no or f_cl in ["선택",""]: st.error("필수항목 누락")
-        else:
-            p_u = 180
-            if sel_cl not in ["선택","➕ 직접"]:
-                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,
+        chks, memo = st.multiselect("체크리스트
