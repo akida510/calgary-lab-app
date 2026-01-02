@@ -4,12 +4,23 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-st.set_page_config(page_title="Skycad Lab", layout="wide")
-st.write("### 🦷 Skycad Lab Manager")
+# 1. 설정 및 제목
+st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
+st.write("### 🦷 Skycad Lab Night Guard Manager")
+
+# 우측 하단 제작자 표시
+st.markdown(
+    """
+    <style>
+    .footer { position: fixed; right: 10px; bottom: 10px; font-size: 10px; color: gray; }
+    </style>
+    <div class="footer">Designed By Heechul Jung</div>
+    """,
+    unsafe_allow_html=True
+)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 1. 세션 상태 초기화
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
@@ -44,10 +55,9 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] ---
+# --- [TAB 1: 등록] (동일) ---
 with t1:
     st.subheader("📋 입력")
-    # ... (기존 입력 폼 유지) ...
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
@@ -97,22 +107,27 @@ with t1:
             fshp = shp.strftime(dfmt) if has_d else "-"
             if has_d and s_t: fshp = f"{fshp} {s_t}"
             row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":frd,"Completed Date":fcp,"Shipping Date":fshp,"Due Date":fdue,"Status":stt,"Notes":", ".join(chks)+" | "+memo}
-            try:
-                new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
-                conn.update(data=new_df)
-                st.success("저장 성공!"); time.sleep(1)
-                reset_fields()
-                st.rerun()
-            except Exception as e: st.error(f"저장 오류: {e}")
+            new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
+            conn.update(data=new_df)
+            st.success("저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
 
-# --- [TAB 2: 정산] ---
+# --- [TAB 2: 정산] (과거 보기 기능 추가) ---
 with t2:
-    st.subheader(f"📊 {date.today().month}월 정산 (기본 320개 공제)")
+    st.subheader("💰 기간별 정산 내역")
+    
+    # 💡 연도와 월을 선택할 수 있는 셀렉트박스 추가
+    today = date.today()
+    c_y, c_m = st.columns(2)
+    sel_year = c_y.selectbox("연도 선택", range(today.year, today.year - 5, -1), index=0)
+    sel_month = c_m.selectbox("월 선택", range(1, 13), index=today.month - 1)
+    
     if not m_df.empty:
         pdf = m_df.copy()
+        # 출고일 기준으로 날짜 변환
         pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
-        # 이번 달 데이터 필터링 (1일~말일)
-        m_dt = pdf[pdf['SD_dt'].dt.month == date.today().month]
+        
+        # 💡 사용자가 선택한 연도와 월에 맞는 데이터만 필터링
+        m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
         
         if not m_dt.empty:
             v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
@@ -120,27 +135,16 @@ with t2:
             v_df.index.name = "Case #"
             st.dataframe(v_df, use_container_width=True)
             
-            # 정상(Normal) 상태인 항목의 수량 합계 계산
             pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
             total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
+            extra_qty = max(0, total_qty - 320)
+            extra_pay = extra_qty * 19.505333
             
-            # 💡 엑스트라 정산 로직 적용
-            base_limit = 320
-            extra_qty = max(0, total_qty - base_limit) # 320개 미만이면 0
-            extra_pay = extra_qty * 19.505333 # 초과 수량에 대해서만 금액 계산
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("이번 달 총 수량", f"{int(total_qty)} ea")
-            c2.metric("엑스트라 수량 (초과분)", f"{int(extra_qty)} ea")
-            c3.metric("엑스트라 정산 금액", f"${extra_pay:,.2f}")
-            
-            if total_qty <= base_limit:
-                st.info(f"💡 현재 총 수량이 {int(total_qty)}개로 기본 할당량({base_limit}개) 이하입니다. 정산 대상 금액이 없습니다.")
-        else: st.info("이번 달 데이터 없음")
+            m1, m2, m3 = st.columns(3)
+            m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
+            m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
+            m3.metric("엑스트라 금액", f"${extra_pay:,.2f}")
+        else:
+            st.info(f"📅 {sel_year}년 {sel_month}월에는 등록된 데이터가 없습니다.")
 
-# --- [TAB 3: 검색] ---
-with t3:
-    qs = st.text_input("검색", key="sb")
-    if not m_df.empty:
-        res = m_df[m_df['Patient'].str.contains(qs, case=False, na=False) | m_df['Case #'].str.contains(qs, case=False, na=False)] if qs else m_df.tail(20)
-        st.dataframe(res, use_container_width=True)
+# --- [TAB 3
