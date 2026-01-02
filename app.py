@@ -1,7 +1,7 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 
 # 1. 초기 설정
@@ -11,10 +11,17 @@ st.markdown("### 🦷 Skycad Lab Manager <span style='font-size:0.8rem;color:gre
 conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
 
-# 날짜 연동 함수
-def upd_s(): st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
-if 'd_k' not in st.session_state: st.session_state.d_k = datetime.now().date()+timedelta(days=7)
-if 's_k' not in st.session_state: st.session_state.s_k = st.session_state.d_k-timedelta(days=2)
+# 💡 날짜 계산 함수 보완 (데이터가 날짜 타입일 때만 계산)
+def upd_s():
+    if 'd_k' in st.session_state:
+        d_val = st.session_state.d_k
+        if isinstance(d_val, str):
+            try: d_val = datetime.strptime(d_val, '%Y-%m-%d').date()
+            except: return
+        st.session_state.s_k = d_val - timedelta(days=2)
+
+if 'd_k' not in st.session_state: st.session_state.d_k = date.today() + timedelta(days=7)
+if 's_k' not in st.session_state: st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
 
 @st.cache_data(ttl=5)
 def get_d():
@@ -55,14 +62,21 @@ with t1:
             mat = st.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"m{i}")
             qty = st.number_input("Qty", 1, 10, 1, key=f"q{i}")
         with d2:
-            is_33 = st.checkbox("3D 스캔", True, key=f"3d{i}")
-            rd, cp = st.date_input("접수일", datetime.now(), key=f"rd{i}", disabled=is_33), st.date_input("완료일", datetime.now()+timedelta(1), key=f"cd{i}")
+            is_33 = st.checkbox("3D 스캔 (접수일 제외)", True, key=f"3d{i}")
+            rd, cp = st.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33), st.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
         with d3:
-            due, shp = st.date_input("마감일", key="d_k", on_change=upd_s), st.date_input("출고일", key="s_k")
-            ship_time = ""
-            if due == shp:
-                ship_time = st.selectbox("⚠️ 출고 시간 선택", ["Noon", "EOD", "ASAP"], key=f"st_time{i}")
-            stt = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
+            # 💡 마감일 사용 여부 선택 기능 추가
+            has_due = st.checkbox("마감일/출고일 지정", True, key=f"h_due{i}")
+            if has_due:
+                due = st.date_input("마감일", key="d_k", on_change=upd_s)
+                shp = st.date_input("출고일", key="s_k")
+                ship_time = ""
+                if due == shp:
+                    ship_time = st.selectbox("⚠️ 출고 시간", ["Noon", "EOD", "ASAP"], key=f"st_time{i}")
+                stt = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
+            else:
+                due = shp = ship_time = None
+                stt = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_no_due{i}")
 
     with st.expander("✅ 기타 (사진 및 메모)", expanded=True):
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in ref_df.iloc[:,3:].values.flatten() if x and str(x)!='nan']))), key=f"ck{i}")
@@ -77,38 +91,34 @@ with t1:
                 try: p_u = int(float(ref_df[ref_df.iloc[:,1] == sel_cl].iloc[0, 3]))
                 except: p_u = 180
             
-            final_ship_date = shp.strftime('%Y-%m-%d')
-            if ship_time: final_ship_date = f"{final_ship_date} {ship_time}"
+            # 마감일 정보가 있을 때와 없을 때 구분
+            f_due = due.strftime('%Y-%m-%d') if has_due else "-"
+            f_ship = shp.strftime('%Y-%m-%d') if has_due else "-"
+            if has_due and ship_time: f_ship = f"{f_ship} {ship_time}"
                 
-            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":"-" if is_33 else rd.strftime('%Y-%m-%d'),"Completed Date":cp.strftime('%Y-%m-%d'),"Shipping Date":final_ship_date,"Due Date":due.strftime('%Y-%m-%d'),"Status":stt,"Notes":", ".join(chks)+" | "+memo}
+            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":"-" if is_33 else rd.strftime('%Y-%m-%d'),"Completed Date":cp.strftime('%Y-%m-%d'),"Shipping Date":f_ship,"Due Date":f_due,"Status":stt,"Notes":", ".join(chks)+" | "+memo}
             try:
                 conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                st.success(f"저장 완료!")
+                st.success("저장 완료!")
                 time.sleep(1)
                 st.session_state.it += 1; st.cache_data.clear(); st.rerun()
             except Exception as e: st.error(f"Error: {e}")
 
-# --- [TAB 2: 정산 - 수량 열 복구] ---
+# --- [TAB 2: 정산] ---
 with t2:
-    st.subheader(f"📊 {datetime.now().month}월 정산 현황")
+    st.subheader(f"📊 {date.today().month}월 정산")
     if not m_df.empty:
         pdf = m_df.copy()
-        # 시간 정보가 붙은 날짜에서 날짜만 추출하여 필터링
         pdf['S_D_Only'] = pd.to_datetime(pdf['Shipping Date'].str.split().str[0], errors='coerce')
-        m_dt = pdf[(pdf['S_D_Only'].dt.month==datetime.now().month)&(pdf['Status'].str.lower()=='normal')]
+        m_dt = pdf[(pdf['S_D_Only'].dt.month==date.today().month)&(pdf['Status'].str.lower()=='normal')]
         if not m_dt.empty:
-            # 💡 중요: 'Qty' 열이 표시되도록 명시
             v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
             try: 
-                v_df.index = m_dt[m_df.columns[12]] # M열 팬번호
+                v_df.index = m_dt[m_df.columns[12]]
                 v_df.index.name = "Pan No."
             except: pass
             st.dataframe(v_df, use_container_width=True)
-            
-            total_qty = int(m_dt['Qty'].sum())
-            total_pay = m_dt['Qty'].sum() * 19.505333
-            st.metric("이번 달 합계", f"{total_qty} ea / ${total_pay:,.2f}")
-        else: st.info("이번 달 정산 데이터가 없습니다.")
+            st.metric("이번 달 합계", f"{int(m_dt['Qty'].sum())} ea / ${m_dt['Qty'].sum()*19.505333:,.2f}")
 
 # --- [TAB 3: 검색] ---
 with t3:
