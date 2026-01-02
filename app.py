@@ -7,7 +7,6 @@ import time
 # 1. 페이지 설정 및 제목/제작자 표기
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
-# 제목과 제작자 이름을 나란히 배치 (HTML 사용)
 st.markdown(
     """
     <div style="display: flex; align-items: baseline;">
@@ -18,35 +17,29 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# 2. 데이터 연결 함수 (API Quota 에러 방지용)
+# 2. 데이터 연결 함수
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_full_data():
     try:
-        # API 과부하 방지를 위해 ttl을 60초로 설정
         df = conn.read(ttl=60)
         if df is None or df.empty:
             return pd.DataFrame(columns=['Case #', 'Clinic', 'Doctor', 'Patient', 'Arch', 'Material', 'Price', 'Qty', 'Total', 'Shipping Date', 'Due Date', 'Status', 'Notes'])
-        
-        # 데이터 정제
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         df['Shipping Date'] = df['Shipping Date'].astype(str).str.strip()
         df['Status'] = df['Status'].astype(str).str.strip()
         return df
     except Exception as e:
-        st.error(f"구글 시트 연결 대기 중... 잠시 후 자동으로 복구됩니다. ({e})")
         return pd.DataFrame()
 
 m_df = get_full_data()
 
-# 레퍼런스 데이터 로드
 try:
     ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
     ref_df = ref_df.apply(lambda x: x.str.strip())
 except:
     ref_df = pd.DataFrame()
 
-# 입력창 초기화용 세션 상태
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 
@@ -101,3 +94,46 @@ with t1:
         if not case_no or f_cl in ["선택", ""]:
             st.error("⚠️ 필수 항목을 입력해주세요.")
         else:
+            # 이 부분이 에러가 났던 지점입니다. 들여쓰기를 정확히 맞췄습니다.
+            final_note = str(memo)
+            new_row = pd.DataFrame([{
+                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
+                "Patient": patient, "Arch": arch, "Material": mat, 
+                "Price": 180, "Qty": qty, "Total": 180 * qty, 
+                "Shipping Date": ship_d.strftime('%Y-%m-%d'), 
+                "Due Date": due_v.strftime('%Y-%m-%d'),
+                "Status": stat, "Notes": final_note
+            }])
+            try:
+                updated_df = pd.concat([m_df, new_row], ignore_index=True)
+                conn.update(data=updated_df)
+                st.success("✅ 저장 성공!")
+                time.sleep(1) 
+                force_reset()
+            except Exception as e:
+                st.error(f"저장 중 오류 발생: {e}")
+
+# --- [TAB 2: 이번 달 정산] ---
+with t2:
+    st.subheader(f"📊 {datetime.now().month}월 정산 (Status: Normal)")
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['s_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        cur_m, cur_y = datetime.now().month, datetime.now().year
+        m_data = pdf[(pdf['s_dt'].dt.month == cur_m) & (pdf['s_dt'].dt.year == cur_y) & (pdf['Status'].str.strip().str.lower() == 'normal')]
+        
+        if not m_data.empty:
+            st.dataframe(m_data[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']], use_container_width=True)
+            total_q = int(m_data['Qty'].sum())
+            c1, c2 = st.columns(2)
+            c1.metric("정산 수량", f"{total_q} 개")
+            c2.metric("예상 수당", f"${total_q * 19.505333:,.2f}")
+        else:
+            st.warning("조건에 맞는 데이터가 없습니다.")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    q = st.text_input("검색 (환자명 또는 Case#)", key=f"search_{it}")
+    if q and not m_df.empty:
+        res = m_df[m_df['Patient'].str.contains(q, case=False, na=False) | m_df['Case #'].astype(str).str.contains(q)]
+        st.dataframe(res, use_container_width=True)
