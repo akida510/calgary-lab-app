@@ -34,13 +34,25 @@ def get_full_data():
 m_df = get_full_data()
 ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
 
+# 초기화 및 날짜 상태 관리용 세션 설정
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
+if "due_date" not in st.session_state:
+    st.session_state.due_date = datetime.now().date() + timedelta(days=7)
+if "ship_date" not in st.session_state:
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
 
 def force_reset():
     st.session_state.iter_count += 1
+    # 날짜 초기화
+    st.session_state.due_date = datetime.now().date() + timedelta(days=7)
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
     st.cache_data.clear()
     st.rerun()
+
+# 마감일 변경 시 호출될 함수 (실시간 연동 핵심)
+def update_dates():
+    st.session_state.ship_date = st.session_state.due_date - timedelta(days=2)
 
 t1, t2, t3 = st.tabs(["📝 케이스 등록", "💰 이번 달 정산", "🔍 케이스 검색"])
 
@@ -73,14 +85,16 @@ with t1:
             qty = st.number_input("Qty", min_value=1, value=1, key=f"q_{it}")
         with d2:
             is_3d = st.checkbox("3D 모델 기반 (스캔)", value=True, key=f"3d_{it}")
-            # 💡 3D 모델일 때는 입력창을 비활성화(disabled)하여 혼동 방지
-            rd = st.date_input("접수일 (Receipt Date)", datetime.now(), key=f"rd_{it}", disabled=is_3d)
-            rt = st.time_input("접수 시간 (Time)", datetime.now(), key=f"rt_{it}", disabled=is_3d)
-            comp_d = st.date_input("완료일 (Completed)", datetime.now() + timedelta(1), key=f"cd_{it}")
+            rd = st.date_input("접수일", datetime.now(), key=f"rd_{it}", disabled=is_3d)
+            rt = st.time_input("접수 시간", datetime.now(), key=f"rt_{it}", disabled=is_3d)
+            comp_d = st.date_input("완료일", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
-            due_v = st.date_input("마감일 (Due Date)", datetime.now() + timedelta(7), key=f"due_{it}")
-            # 💡 마감일 변경 시 출고일 자동 연동 (-2일)
-            ship_d = st.date_input("출고일 (Shipping)", value=(due_v - timedelta(days=2)), key=f"sd_{it}")
+            # 💡 [마감일 위젯] 변경 시 update_dates 함수 실행
+            st.date_input("마감일 (Due Date)", key="due_date", on_change=update_dates)
+            
+            # 💡 [출고일 위젯] 세션 상태의 ship_date 값을 항상 사용
+            st.date_input("출고일 (Shipping)", key="ship_date")
+            
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
     with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
@@ -89,8 +103,27 @@ with t1:
         img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
         memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
 
-    # 단가 계산 로직
+    # 단가 및 저장 로직
     p_u = 180
     if sel_cl not in ["선택", "➕ 직접"]:
         try:
-            p_val = ref_df[ref_df.iloc[:,
+            p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
+            p_u = int(float(p_val))
+        except: p_u = 180
+
+    if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
+        if not case_no or f_cl in ["선택", ""]:
+            st.error("⚠️ Case #와 Clinic은 필수입니다.")
+        else:
+            final_note = ", ".join(chks) + (f" | {memo}" if memo else "")
+            save_rd = "-" if is_3d else rd.strftime('%Y-%m-%d')
+            save_rt = "-" if is_3d else rt.strftime('%H:%M')
+            
+            new_row = pd.DataFrame([{
+                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
+                "Patient": patient, "Arch": arch, "Material": mat, 
+                "Price": p_u, "Qty": qty, "Total": p_u * qty, 
+                "Receipt Date": save_rd, "Receipt Time": save_rt,
+                "Completed Date": comp_d.strftime('%Y-%m-%d'), 
+                "Shipping Date": st.session_state.ship_date.strftime('%Y-%m-%d'), 
+                "Due Date": st.session_state.due_date.strftime('%Y-%
