@@ -4,13 +4,14 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 
+# 1. 초기 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("### 🦷 Skycad Lab Manager <span style='font-size:0.8rem;color:#888;'>by Heechul Jung</span>", unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
 
-def update_ship(): st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
+def upd_s(): st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
 if 'd_k' not in st.session_state: st.session_state.d_k = datetime.now().date() + timedelta(days=7)
 if 's_k' not in st.session_state: st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
 
@@ -20,7 +21,7 @@ def reset():
     st.rerun()
 
 @st.cache_data(ttl=5)
-def get_data():
+def get_d():
     try:
         df = conn.read(ttl=0).astype(str).apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         df = df[(df['Case #']!="")&(df['Case #']!="nan")&(~df['Case #'].str.contains("Deliver|Remake|작업량|세후|할당량",na=False))]
@@ -28,13 +29,14 @@ def get_data():
         return df.reset_index(drop=True)
     except: return pd.DataFrame()
 
-m_df = get_data()
+m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
+# --- [TAB 1: 등록] ---
 with t1:
     i = st.session_state.it
-    st.subheader("📋 케이스 입력")
+    st.subheader("📋 입력")
     c1, c2, c3 = st.columns(3)
     with c1:
         case_no = st.text_input("Case # *", key=f"c{i}")
@@ -58,17 +60,27 @@ with t1:
             mat = st.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"m{i}")
             qty = st.number_input("Qty", 1, 10, 1, key=f"q{i}")
         with d2:
-            is_3d = st.checkbox("3D 스캔", True, key=f"3d{i}")
-            rd = st.date_input("접수일", datetime.now(), key=f"rd{i}", disabled=is_3d)
-            comp_d = st.date_input("완료일", datetime.now()+timedelta(1), key=f"cd{i}")
+            is_33 = st.checkbox("3D 스캔", True, key=f"3d{i}")
+            rd = st.date_input("접수일", datetime.now(), key=f"rd{i}", disabled=is_33)
+            cp = st.date_input("완료일", datetime.now()+timedelta(1), key=f"cd{i}")
         with d3:
-            due_d = st.date_input("마감일", key="d_k", on_change=update_ship)
-            ship_d = st.date_input("출고일", key="s_k")
-            stat = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
+            du = st.date_input("마감일", key="d_k", on_change=upd_s)
+            sh = st.date_input("출고일", key="s_k")
+            stt = st.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st{i}")
 
     with st.expander("✅ 기타", expanded=True):
-        chk_opts = sorted(list(set([str(x) for x in ref_df.iloc[:,3:].values.flatten() if x and str(x)!='nan'])))
-        chks = st.multiselect("체크리스트", chk_opts, key=f"ck{i}")
+        all_v = ref_df.iloc[:,3:].values.flatten()
+        ck_o = sorted(list(set([str(x) for x in all_v if x and str(x)!='nan'])))
+        chks = st.multiselect("체크리스트", ck_o, key=f"ck{i}")
         memo = st.text_input("메모", key=f"me{i}")
 
-    if st.
+    if st.button("🚀 저장하기", use_container_width=True):
+        if not case_no or f_cl in ["선택",""]: st.error("필수항목 누락")
+        else:
+            p_u = 180
+            if sel_cl not in ["선택","➕ 직접"]:
+                try: p_u = int(float(ref_df[ref_df.iloc[:,1]==sel_cl].iloc[0,3]))
+                except: p_u = 180
+            new_r = pd.DataFrame([{"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":"-" if is_33 else rd.strftime('%Y-%m-%d'),"Completed Date":cp.strftime('%Y-%m-%d'),"Shipping Date":sh.strftime('%Y-%m-%d'),"Due Date":du.strftime('%Y-%m-%d'),"Status":stt,"Notes":", ".join(chks)+" | "+memo}])
+            try:
+                conn.update(data=pd
