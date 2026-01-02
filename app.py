@@ -25,13 +25,15 @@ if 'd_k' not in st.session_state:
 if 's_k' not in st.session_state: 
     st.session_state.s_k = st.session_state.d_k - timedelta(days=2)
 
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=2) # 캐시 시간을 더 줄여서 즉각 반영되게 수정
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
+        # 빈 행 및 불필요한 행 제거
+        df = df[df['Case #'].str.strip() != ""]
+        df = df[df['Case #'].str.lower() != "nan"]
+        # 날짜 뒤 시간 제거
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
-        df = df[(df['Case #']!="") & (df['Case #']!="nan")]
-        df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df.reset_index(drop=True)
     except: 
         return pd.DataFrame()
@@ -40,7 +42,7 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] ---
+# --- [TAB 1: 등록] --- (이전과 동일, 안정성 유지)
 with t1:
     i = st.session_state.it
     st.subheader("📋 입력")
@@ -76,7 +78,6 @@ with t1:
             due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    # ✅ 체크리스트 및 사진 업로드 (복구 완료)
     with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
@@ -85,7 +86,7 @@ with t1:
 
     if st.button("🚀 데이터 저장", use_container_width=True):
         if not case_no or f_cl in ["선택", ""]: 
-            st.error("Case #와 Clinic은 필수 항목입니다.")
+            st.error("Case #와 Clinic은 필수입니다.")
         else:
             try:
                 p_u = 180
@@ -109,7 +110,3 @@ with t1:
                 new_df = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
                 conn.update(data=new_df)
                 st.success("저장되었습니다!"); time.sleep(1)
-                st.session_state.it += 1; st.cache_data.clear(); st.rerun()
-            except Exception as e: st.error(f"저장 중 오류 발생: {e}")
-
-#
