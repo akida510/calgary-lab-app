@@ -32,8 +32,13 @@ def get_full_data():
         return pd.DataFrame()
 
 m_df = get_full_data()
-ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
-ref_df = ref_df.apply(lambda x: x.str.strip())
+
+# 레퍼런스 데이터 로드
+try:
+    ref_df = conn.read(worksheet="Reference", ttl=300).astype(str)
+    ref_df = ref_df.apply(lambda x: x.str.strip())
+except:
+    ref_df = pd.DataFrame()
 
 # 초기화용 세션 상태
 if "iter_count" not in st.session_state:
@@ -56,14 +61,17 @@ with t1:
         case_no = st.text_input("Case # *", key=f"c_{it}")
         patient = st.text_input("Patient Name *", key=f"p_{it}")
     with c2:
-        cl_list = sorted([c for c in ref_df.iloc[:, 1].unique() if c and c.lower() not in ['nan', 'clinic']])
+        if not ref_df.empty:
+            cl_list = sorted([c for c in ref_df.iloc[:, 1].unique() if c and str(c).lower() not in ['nan', 'clinic']])
+        else:
+            cl_list = []
         sel_cl = st.selectbox("Clinic *", ["선택"] + cl_list + ["➕ 직접"], key=f"cl_{it}")
         f_cl = st.text_input("클리닉명 입력", key=f"fcl_{it}") if sel_cl == "➕ 직접" else sel_cl
     with c3:
         doc_opts = ["선택", "➕ 직접"]
-        if sel_cl not in ["선택", "➕ 직접"]:
+        if not ref_df.empty and sel_cl not in ["선택", "➕ 직접"]:
             docs = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[:, 2].unique()
-            doc_opts += sorted([d for d in docs if d and d.lower() != 'nan'])
+            doc_opts += sorted([d for d in docs if d and str(d).lower() != 'nan'])
         sel_doc = st.selectbox("Doctor", doc_opts, key=f"doc_{it}")
         f_doc = st.text_input("의사명 입력", key=f"fdoc_{it}") if sel_doc == "➕ 직접" else sel_doc
 
@@ -76,7 +84,6 @@ with t1:
         with d2:
             is_3d = st.checkbox("3D 모델 기반 (스캔)", value=True, key=f"3d_{it}")
             rd = st.date_input("접수일 (Receipt Date)", datetime.now(), key=f"rd_{it}")
-            # [추가] 석고 모델일 경우 시간 입력창 활성화
             rt = st.time_input("접수 시간 (Time)", datetime.now(), key=f"rt_{it}", disabled=is_3d)
             comp_d = st.date_input("완료일 (Completed)", datetime.now() + timedelta(1), key=f"cd_{it}")
         with d3:
@@ -85,27 +92,20 @@ with t1:
             stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=f"st_{it}")
 
     with st.expander("✅ 체크리스트 / 📸 사진 / 📝 메모", expanded=True):
-        chk_opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and i.lower() != 'nan'])))
+        if not ref_df.empty:
+            chk_opts = sorted(list(set([i for i in ref_df.iloc[:, 3:].values.flatten() if i and str(i).lower() != 'nan'])))
+        else:
+            chk_opts = []
         chks = st.multiselect("체크리스트 선택", chk_opts, key=f"chk_{it}")
         img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{it}")
         memo = st.text_input("추가 메모 입력", key=f"mem_{it}")
 
-    # 단가 계산
+    # 단가 계산 로직
     p_u = 180
-    if sel_cl not in ["선택", "➕ 직접"]:
+    if not ref_df.empty and sel_cl not in ["선택", "➕ 직접"]:
         try:
             p_val = ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]
             p_u = int(float(p_val))
         except: p_u = 180
 
     if st.button("🚀 최종 데이터 저장하기", use_container_width=True):
-        if not case_no or f_cl in ["선택", ""]:
-            st.error("⚠️ Case #와 Clinic은 필수입니다.")
-        else:
-            final_note = ", ".join(chks) + (f" | {memo}" if memo else "")
-            new_row = pd.DataFrame([{
-                "Case #": str(case_no), "Clinic": f_cl, "Doctor": f_doc, 
-                "Patient": patient, "Arch": arch, "Material": mat, 
-                "Price": p_u, "Qty": qty, "Total": p_u * qty, 
-                "Receipt Date": rd.strftime('%Y-%m-%d') if not is_3d else "3D Scan",
-                "
