@@ -25,7 +25,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "iter_count" not in st.session_state:
     st.session_state.iter_count = 0
 
-# 마감일 -> 출고일 자동 연동 (-2일)
+# 마감일 -> 출고일 자동 연동 로직
 def update_shipping_date():
     st.session_state.ship_key = st.session_state.due_key - timedelta(days=2)
 
@@ -39,25 +39,24 @@ def force_reset():
     st.cache_data.clear()
     st.rerun()
 
-# 💡 데이터 로드 및 노이즈 필터링 함수
+# 데이터 로드 및 노이즈(시트 하단 계산식 등) 필터링
 def get_full_data():
     try:
         df = conn.read(ttl=0)
         if df is None or df.empty:
             return pd.DataFrame()
         
-        # 00:00:00 제거 및 문자열 정리
+        # 문자열 정리 및 00:00:00 제거
         df = df.astype(str).apply(lambda x: x.str.replace(' 00:00:00', '', regex=False).str.strip())
         
-        # 💡 [핵심] 시트 하단의 통계/계산 데이터(Deliver, 세후, 작업량 등) 제거 로직
-        # Case #가 없거나, Case # 열에 특정 키워드가 포함된 행은 실제 데이터가 아니므로 제외
+        # 노이즈 필터링: Case #가 유효하지 않은 행(통계, 계산식 등) 제거
+        # "Deliver", "Remake", "작업량" 등 시트 하단에 적힌 텍스트들이 Case # 열에 있으면 제외
         df = df[
             (df['Case #'] != "") & 
             (df['Case #'] != "nan") &
-            (~df['Case #'].str.contains("Deliver|Remake|작업량|세후|할당량|Month|Year", na=False))
+            (~df['Case #'].str.contains("Deliver|Remake|작업량|세후|할당량|Month|Year|NAME", na=False))
         ]
         
-        # 숫자 변환
         df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
         return df
     except:
@@ -89,18 +88,4 @@ with t1:
         sel_doc = st.selectbox("Doctor", doc_opts, key=f"doc_sel_{it}")
         f_doc = st.text_input("의사명 입력", key=f"fdoc_{it}") if sel_doc == "➕ 직접" else sel_doc
 
-    with st.expander("⚙️ 작업 상세 및 날짜 연동", expanded=True):
-        d1, d2, d3 = st.columns(3)
-        with d1:
-            arch = st.radio("Arch", ["Max", "Mand"], horizontal=True, key=f"ar_{it}")
-            mat = st.selectbox("Material", ["Thermo", "Dual", "Soft", "Hard"], key=f"mat_{it}")
-            qty = st.number_input("Qty", min_value=1, value=1, key=f"q_{it}")
-        with d2:
-            is_3d = st.checkbox("3D 모델 기반 (스캔)", value=True, key=f"3d_{it}")
-            rd = st.date_input("접수일", datetime.now(), key=f"rd_{it}", disabled=is_3d)
-            rt = st.time_input("접수 시간", datetime.now(), key=f"rt_{it}", disabled=is_3d)
-            comp_d = st.date_input("완료일", datetime.now() + timedelta(1), key=f"cd_{it}")
-        with d3:
-            due_d = st.date_input("마감일 (Due Date)", key="due_key", on_change=update_shipping_date)
-            ship_d = st.date_input("출고일 (Shipping)", key="ship_key")
-            stat = st.selectbox("Status", ["Normal", "Hold", "Canceled"], index=0, key=
+    with st.expander("⚙️ 작업
