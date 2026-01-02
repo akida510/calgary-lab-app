@@ -78,5 +78,37 @@ with t1:
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"a{i}")
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"m{i}")
         qty = d1.number_input("Qty", 1, 10, 1, key=f"q{i}")
+        
+        # 💡 에러 발생 지점 수정 완료 (is_33 변수명 복구)
         is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key=f"3d{i}")
-        rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is
+        rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
+        cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
+        
+        if d2.checkbox("마감일/출고일 사용", True, key=f"h_d{i}"):
+            due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
+            shp = d3.date_input("출고일", key=f"shp{i}")
+            s_t = d3.selectbox("배송 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
+        else: due = shp = s_t = None
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
+
+    # 💡 체크리스트 및 사진 업로드 (누락 없이 다시 확인)
+    with st.expander("✅ 체크리스트 & 메모 & 사진", expanded=True):
+        chk_raw = ref_df.iloc[:,3:].values.flatten()
+        chks = st.multiselect("체크리스트 선택", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
+        memo = st.text_input("추가 메모", key=f"me{i}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+
+    if st.button("🚀 시트에 저장하기", use_container_width=True):
+        if not case_no or f_cl in ["선택", ""]: st.error("정보 부족 (Case # 또는 Clinic)")
+        else:
+            p_u = 180
+            try:
+                if sel_cl not in ["선택", "➕ 직접"]:
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+            except: p_u = 180
+            dfmt = '%Y-%m-%d'
+            row = {
+                "Case #":case_no, "Clinic":f_cl, "Doctor":f_doc, "Patient":patient,
+                "Arch":arch, "Material":mat, "Price":p_u, "Qty":qty, "Total":p_u*qty,
+                "Receipt Date":("-" if is_33 else rd.strftime(dfmt)),
+                "Completed Date":cp.
