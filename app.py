@@ -7,7 +7,7 @@ import time
 # 1. 페이지 설정 및 상단 레이아웃
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
-# 제목과 제작자 정보 (글씨 밝기를 #666으로 수정하여 더 잘 보이게 함)
+# 제목과 제작자 정보 (글씨 밝기 조정)
 st.markdown(
     """
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -20,7 +20,7 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 관리 (입력창 초기화용)
+# 2. 세션 상태 관리
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
@@ -52,7 +52,6 @@ def get_d():
     except: 
         return pd.DataFrame(columns=cols)
 
-# 데이터 로드
 m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 
@@ -65,7 +64,7 @@ with t1:
     case_no = c1.text_input("Case # (팬번호)", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
     
-    # Clinic 선택 (타이핑 검색 가능)
+    # Clinic 선택
     cl_list = sorted([str(c) for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic 검색/선택", ["선택 안함", "➕ 직접 입력"] + cl_list, key=f"cl{i}")
     
@@ -75,7 +74,7 @@ with t1:
     elif sel_cl != "선택 안함":
         f_cl = sel_cl
     
-    # Doctor 선택 (Clinic 여부에 따라 동적 목록 제공)
+    # Doctor 선택
     if sel_cl not in ["선택 안함", "➕ 직접 입력"]:
         doc_list = sorted([str(d) for d in ref_df[ref_df.iloc[:,1]==sel_cl].iloc[:,2].unique() if d and str(d)!='nan'])
     else:
@@ -89,13 +88,11 @@ with t1:
     elif sel_doc != "선택 안함":
         f_doc = sel_doc
 
-    # 세부 옵션 설정
     with st.expander("⚙️ 세부 옵션 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"a{i}")
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"m{i}")
         qty = d1.number_input("Qty", 1, 10, 1, key=f"q{i}")
-        
         is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key=f"3d{i}")
         rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
@@ -109,55 +106,17 @@ with t1:
             
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    # 체크리스트 및 사진 업로드 (유지)
     with st.expander("✅ 체크리스트 & 메모", expanded=True):
         chk_raw = ref_df.iloc[:, 3:].values.flatten()
-        chk_options = sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan'])))
-        chks = st.multiselect("체크리스트 선택", chk_options, key=f"ck{i}")
-        
+        chk_opts = sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan'])))
+        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"ck{i}")
         memo = st.text_input("추가 메모", key=f"me{i}")
-        
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
         if up_img:
             st.image(up_img, width=300)
 
-    # 저장 버튼
     if st.button("🚀 시트에 저장하기", use_container_width=True):
         if not case_no:
             st.error("Case #를 입력해 주세요.")
         elif not f_cl and not f_doc:
             st.error("Clinic 또는 Doctor 중 하나는 입력해야 합니다.")
-        else:
-            # 기본 단가 180불 반영 로직
-            p_u = 180
-            if f_cl:
-                try:
-                    p_u_val = ref_df[ref_df.iloc[:, 1] == f_cl].iloc[0, 3]
-                    p_u = int(float(p_u_val))
-                except: p_u = 180
-            
-            dfmt = '%Y-%m-%d'
-            final_notes = ", ".join(chks) + (f" | {memo}" if memo else "")
-            
-            row = {
-                "Case #": case_no, "Clinic": f_cl if f_cl else "-", "Doctor": f_doc if f_doc else "-", "Patient": patient if patient else "-",
-                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
-                "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
-                "Completed Date": cp.strftime(dfmt),
-                "Shipping Date": (shp.strftime(dfmt) if shp else "-"),
-                "Due Date": (due.strftime(dfmt) if due else "-"),
-                "Status": stt, "Notes": final_notes
-            }
-            
-            try:
-                new_data = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
-                conn.update(data=new_data)
-                st.success(f"{case_no} 저장 완료!")
-                time.sleep(1)
-                reset_fields()
-                st.rerun()
-            except Exception as e:
-                st.error(f"저장 오류: {e}")
-
-# --- [TAB 2: 정산] ---
-with t
