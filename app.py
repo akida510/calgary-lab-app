@@ -46,6 +46,7 @@ def get_d():
         df = conn.read(ttl=0).astype(str)
         if df.empty or "Case #" not in df.columns:
             return pd.DataFrame(columns=cols)
+        # 빈 행 제거 및 데이터 정리
         df = df[df['Case #'].str.strip() != ""]
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
@@ -64,7 +65,6 @@ with t1:
     case_no = c1.text_input("Case # (팬번호)", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
     
-    # Clinic 선택
     cl_list = sorted([str(c) for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic 검색/선택", ["선택 안함", "➕ 직접 입력"] + cl_list, key=f"cl{i}")
     
@@ -74,7 +74,6 @@ with t1:
     elif sel_cl != "선택 안함":
         f_cl = sel_cl
     
-    # Doctor 선택
     if sel_cl not in ["선택 안함", "➕ 직접 입력"]:
         doc_list = sorted([str(d) for d in ref_df[ref_df.iloc[:,1]==sel_cl].iloc[:,2].unique() if d and str(d)!='nan'])
     else:
@@ -103,7 +102,6 @@ with t1:
             s_t = d3.selectbox("배송 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
         else:
             due = shp = s_t = None
-            
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
     with st.expander("✅ 체크리스트 & 메모", expanded=True):
@@ -112,11 +110,20 @@ with t1:
         chks = st.multiselect("체크리스트 선택", chk_opts, key=f"ck{i}")
         memo = st.text_input("추가 메모", key=f"me{i}")
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
-        if up_img:
-            st.image(up_img, width=300)
+        if up_img: st.image(up_img, width=300)
 
     if st.button("🚀 시트에 저장하기", use_container_width=True):
         if not case_no:
             st.error("Case #를 입력해 주세요.")
         elif not f_cl and not f_doc:
             st.error("Clinic 또는 Doctor 중 하나는 입력해야 합니다.")
+        else:
+            p_u = 180
+            if f_cl:
+                try:
+                    p_u_val = ref_df[ref_df.iloc[:, 1] == f_cl].iloc[0, 3]
+                    p_u = int(float(p_u_val))
+                except: p_u = 180
+            
+            dfmt = '%Y-%m-%d'
+            final_notes = ", ".join(chks) + (f" | {memo}" if
