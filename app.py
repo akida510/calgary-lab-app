@@ -7,7 +7,7 @@ import time
 # 1. 페이지 설정 및 상단 레이아웃
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
-# 제목과 제작자 정보 (글씨 밝기 조정)
+# 제목과 제작자 정보 (글씨 밝기를 #666으로 조정하여 선명하게 함)
 st.markdown(
     """
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -46,7 +46,6 @@ def get_d():
         df = conn.read(ttl=0).astype(str)
         if df.empty or "Case #" not in df.columns:
             return pd.DataFrame(columns=cols)
-        # 빈 행 제거 및 데이터 정리
         df = df[df['Case #'].str.strip() != ""]
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
@@ -126,4 +125,60 @@ with t1:
                 except: p_u = 180
             
             dfmt = '%Y-%m-%d'
-            final_notes = ", ".join(chks) + (f" | {memo}" if
+            # [수정된 부분] 괄호와 조건문 구문 오류 해결
+            final_notes = ", ".join(chks) + (f" | {memo}" if memo else "")
+            
+            row = {
+                "Case #": case_no, "Clinic": f_cl if f_cl else "-", "Doctor": f_doc if f_doc else "-", "Patient": patient if patient else "-",
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
+                "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
+                "Completed Date": cp.strftime(dfmt),
+                "Shipping Date": (shp.strftime(dfmt) if shp else "-"),
+                "Due Date": (due.strftime(dfmt) if due else "-"),
+                "Status": stt, "Notes": final_notes
+            }
+            try:
+                new_data = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
+                conn.update(data=new_data)
+                st.success(f"{case_no} 저장 성공!")
+                time.sleep(1); reset_fields(); st.rerun()
+            except Exception as e: st.error(f"저장 오류: {e}")
+
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader("💰 월별 정산 현황")
+    c_y, c_m = st.columns(2)
+    sel_year = c_y.selectbox("연도", range(date.today().year, date.today().year - 5, -1))
+    sel_month = c_m.selectbox("월", range(1, 13), index=date.today().month - 1)
+    
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['Qty'] = pd.to_numeric(pdf['Qty'], errors='coerce').fillna(0)
+        pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
+        
+        if not m_dt.empty:
+            disp_cols = ['Case #', 'Shipping Date', 'Clinic', 'Doctor', 'Patient', 'Qty', 'Status']
+            st.dataframe(m_dt[disp_cols], use_container_width=True, hide_index=True)
+            
+            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
+            total_qty = pay_dt['Qty'].sum()
+            extra_qty = max(0, total_qty - 320)
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("총 수량", f"{int(total_qty)} ea")
+            m2.metric("Extra", f"{int(extra_qty)} ea")
+            m3.metric("정산 금액", f"${extra_qty * 19.505333:,.2f}")
+        else: st.info("데이터가 없습니다.")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    st.subheader("🔍 검색")
+    qs = st.text_input("검색어 입력 (환자, Case #, 병원 등)", key="search_bar")
+    if not m_df.empty:
+        if qs:
+            mask = m_df.apply(lambda row: row.astype(str).str.contains(qs, case=False).any(), axis=1)
+            f_df = m_df[mask]
+            st.dataframe(f_df, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(m_df.tail(20), use_container_width=True, hide_index=True)
