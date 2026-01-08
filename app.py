@@ -85,4 +85,61 @@ with t1:
             due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
             shp = d3.date_input("출고일", key=f"shp{i}")
             s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
-        else: due = shp = s
+        else: due = shp = s_t = None
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
+
+    # ✅ 체크리스트 및 사진 입력 유지
+    with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
+        chk_raw = ref_df.iloc[:,3:].values.flatten()
+        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+        memo = st.text_input("메모", key=f"me{i}")
+
+    if st.button("🚀 데이터 저장", use_container_width=True):
+        if not case_no or f_cl in ["선택", ""]: st.error("정보 부족")
+        else:
+            p_u = 180
+            try:
+                if sel_cl not in ["선택", "➕ 직접"]:
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+            except: p_u = 180
+            dfmt = '%Y-%m-%d'
+            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":("-" if is_33 else rd.strftime(dfmt)),"Completed Date":cp.strftime(dfmt),"Shipping Date":(shp.strftime(dfmt) if shp else "-"),"Due Date":(due.strftime(dfmt) if due else "-"),"Status":stt,"Notes":", ".join(chks)+" | "+memo}
+            conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
+            st.success("저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
+
+# --- [TAB 2: 정산 (320개 공제 & 과거 조회 유지)] ---
+with t2:
+    st.subheader("💰 기간별 정산 내역")
+    today = date.today()
+    c_y, c_m = st.columns(2)
+    sel_year = c_y.selectbox("연도", range(today.year, today.year - 5, -1))
+    sel_month = c_m.selectbox("월", range(1, 13), index=today.month - 1)
+    
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
+        m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
+        if not m_dt.empty:
+            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
+            v_df.index = m_dt['Case #']; v_df.index.name = "Case #"
+            st.dataframe(v_df, use_container_width=True)
+            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
+            total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
+            extra_qty = max(0, total_qty - 320)
+            m1, m2, m3 = st.columns(3)
+            m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
+            m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
+            m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
+        else: st.info("데이터 없음")
+
+# --- [TAB 3: 검색 (실시간 필터링)] ---
+with t3:
+    st.subheader("🔍 전체 데이터 검색")
+    qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
+    if not m_df.empty:
+        if qs:
+            f_df = m_df[m_df['Case #'].str.contains(qs, case=False, na=False) | m_df['Patient'].str.contains(qs, case=False, na=False)]
+            st.dataframe(f_df, use_container_width=True)
+        else:
+            st.dataframe(m_df.tail(20), use_container_width=True)
