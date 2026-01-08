@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 기존 디자인 (제목 우측 제작자 표시 유지)
+# 1. 페이지 설정 및 디자인 (기존 디자인 유지)
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,11 +19,11 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 초기화 (입력 도중 초기화 방지를 위해 key 관리 최적화)
+# 2. 세션 상태 관리 (입력 튕김 방지)
 if "reset_key" not in st.session_state:
     st.session_state.reset_key = 0
 
-# 3. 데이터 로딩 (에러 방지를 위한 10초 캐시)
+# 3. 데이터 로딩 (에러 방지용 10초 캐시)
 @st.cache_data(ttl=10)
 def get_d():
     try:
@@ -37,66 +37,46 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록 (기존 디자인 및 기능 완벽 유지)] ---
+# --- [TAB 1: 등록] ---
 with t1:
     st.subheader("📋 입력")
-    # reset_key를 사용하여 저장 후에만 전체 입력창을 깨끗하게 비움
-    with st.container():
-        c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case #", key=f"case_{st.session_state.reset_key}")
-        patient = c1.text_input("Patient", key=f"pat_{st.session_state.reset_key}")
+    # reset_key를 통해 저장 후에만 입력창 초기화
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #", key=f"case_{st.session_state.reset_key}")
+    patient = c1.text_input("Patient", key=f"pat_{st.session_state.reset_key}")
+    
+    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic", ["선택"]+cl_list+["➕ 직접"], key=f"cl_{st.session_state.reset_key}")
+    f_cl = c2.text_input("클리닉명 (직접입력 시)", key=f"fcl_{st.session_state.reset_key}") if sel_cl=="➕ 직접" else sel_cl
+    
+    doc_opts = ["선택","➕ 직접"]
+    if sel_cl not in ["선택","➕ 직접"]:
+        docs = ref_df[ref_df.iloc[:,1]==sel_cl].iloc[:,2].unique()
+        doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
+    sel_doc = c3.selectbox("Doctor", doc_opts, key=f"doc_{st.session_state.reset_key}")
+    f_doc = c3.text_input("의사명 (직접입력 시)", key=f"fdoc_{st.session_state.reset_key}") if sel_doc=="➕ 직접" else sel_doc
+
+    with st.expander("⚙️ 세부설정", expanded=True):
+        d1, d2, d3 = st.columns(3)
+        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{st.session_state.reset_key}")
+        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{st.session_state.reset_key}")
+        qty = d1.number_input("Qty", 1, 10, 1, key=f"qty_{st.session_state.reset_key}")
+        is_33 = d2.checkbox("3D 스캔", True, key=f"scan_{st.session_state.reset_key}")
+        rd = d2.date_input("접수일", date.today(), disabled=is_33, key=f"rd_{st.session_state.reset_key}")
+        cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cp_{st.session_state.reset_key}")
         
-        cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"]+cl_list+["➕ 직접"], key=f"cl_{st.session_state.reset_key}")
-        f_cl = c2.text_input("클리닉명 (직접입력 시)", key=f"fcl_{st.session_state.reset_key}") if sel_cl=="➕ 직접" else sel_cl
-        
-        doc_opts = ["선택","➕ 직접"]
-        if sel_cl not in ["선택","➕ 직접"]:
-            docs = ref_df[ref_df.iloc[:,1]==sel_cl].iloc[:,2].unique()
-            doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
-        sel_doc = c3.selectbox("Doctor", doc_opts, key=f"doc_{st.session_state.reset_key}")
-        f_doc = c3.text_input("의사명 (직접입력 시)", key=f"fdoc_{st.session_state.reset_key}") if sel_doc=="➕ 직접" else sel_doc
+        if d2.checkbox("마감일/출고일 지정", True, key=f"h_d_{st.session_state.reset_key}"):
+            default_due = date.today() + timedelta(days=7)
+            due = d3.date_input("마감일", default_due, key=f"due_{st.session_state.reset_key}")
+            shp = d3.date_input("출고일", due - timedelta(days=2), key=f"shp_{st.session_state.reset_key}")
+            s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_{st.session_state.reset_key}") if due==shp else ""
+        else: due = shp = s_t = None
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"stat_{st.session_state.reset_key}")
 
-        with st.expander("⚙️ 세부설정", expanded=True):
-            d1, d2, d3 = st.columns(3)
-            arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{st.session_state.reset_key}")
-            mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{st.session_state.reset_key}")
-            qty = d1.number_input("Qty", 1, 10, 1, key=f"qty_{st.session_state.reset_key}")
-            is_33 = d2.checkbox("3D 스캔", True, key=f"scan_{st.session_state.reset_key}")
-            rd = d2.date_input("접수일", date.today(), disabled=is_33, key=f"rd_{st.session_state.reset_key}")
-            cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cp_{st.session_state.reset_key}")
-            
-            # 💡 새로고침의 주범인 on_change를 제거하고 기본값만 세팅
-            if d2.checkbox("마감일/출고일 지정", True, key=f"h_d_{st.session_state.reset_key}"):
-                default_due = date.today() + timedelta(days=7)
-                due = d3.date_input("마감일", default_due, key=f"due_{st.session_state.reset_key}")
-                # 출고일은 마감일에서 -2일된 날짜를 기본값으로 보여줌
-                shp = d3.date_input("출고일", due - timedelta(days=2), key=f"shp_{st.session_state.reset_key}")
-                s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_{st.session_state.reset_key}") if due==shp else ""
-            else: due = shp = s_t = None
-            stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"stat_{st.session_state.reset_key}")
+    with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
+        chk_raw = ref_df.iloc[:,3:].values.flatten()
+        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"chk_{st.session_state.reset_key}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{st.session_state.reset_key}")
+        memo = st.text_input("메모", key=f"memo_{st.session_state.reset_key}")
 
-        with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
-            chk_raw = ref_df.iloc[:,3:].values.flatten()
-            chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"chk_{st.session_state.reset_key}")
-            up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{st.session_state.reset_key}")
-            memo = st.text_input("메모", key=f"memo_{st.session_state.reset_key}")
-
-    if st.button("🚀 데이터 저장", use_container_width=True):
-        if not case_no or f_cl in ["선택", ""]:
-            st.error("Case #와 Clinic은 필수 입력 항목입니다.")
-        else:
-            with st.spinner("데이터 저장 중..."):
-                p_u = 180
-                try:
-                    if sel_cl not in ["선택", "➕ 직접"]:
-                        p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
-                except: p_u = 180
-                dfmt = '%Y-%m-%d'
-                row = {
-                    "Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,
-                    "Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,
-                    "Receipt Date":("-" if is_33 else rd.strftime(dfmt)),
-                    "Completed Date":cp.strftime(dfmt),
-                    "Shipping Date":(shp.strftime(dfmt) if shp else "-"),
-                    "Due Date":(due
+    if st.button("🚀 데이터 저장", use_container_width
