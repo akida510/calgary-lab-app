@@ -10,7 +10,7 @@ st.markdown("### 🦷 Skycad Lab Night Guard Manager")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리 (문자열 결합 방식)
+# 세션 관리
 if "it" not in st.session_state:
     st.session_state.it = 0
 iter_no = str(st.session_state.it)
@@ -112,10 +112,8 @@ with t1:
             if f_cl and not ref.empty:
                 p_m = ref[ref.iloc[:, 1] == f_cl]
                 if not p_m.empty:
-                    try: 
-                        p_u = int(float(p_m.iloc[0, 3]))
-                    except: # 💡 여기 콜론(:) 추가 수정완료
-                        p_u = 180
+                    try: p_u = int(float(p_m.iloc[0, 3]))
+                    except: p_u = 180
             
             dt_fmt = '%Y-%m-%d'
             new_row = {
@@ -146,9 +144,9 @@ with t2:
         pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[(pdf['SD'].dt.year == s_y) & (pdf['SD'].dt.month == s_m)]
         if not m_dt.empty:
-            # 💡 정산 표 첫 열을 Case #로 설정
             cols = ['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
-            st.dataframe(m_dt[cols], use_container_width=True)
+            # 💡 hide_index=True를 추가하여 불필요한 번호를 없앴습니다.
+            st.dataframe(m_dt[cols], use_container_width=True, hide_index=True)
             
             pay = m_dt[m_dt['Status'].str.lower() == 'normal']
             tot = pd.to_numeric(pay['Qty'], errors='coerce').sum()
@@ -161,5 +159,7 @@ with t3:
     if not main_df.empty:
         if q_s:
             f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
-            st.dataframe(f_df, use_container_width=True)
-        else: st.dataframe(main_df.tail(20), use_container_width=True)
+            # 💡 검색 결과에서도 인덱스를 숨깁니다.
+            st.dataframe(f_df, use_container_width=True, hide_index=True)
+        else: 
+            st.dataframe(main_df.tail(20), use_container_width=True, hide_index=True)
