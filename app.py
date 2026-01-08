@@ -19,7 +19,7 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 데이터 로딩 (캐시 최적화)
+# 2. 데이터 로딩 (캐시 10초)
 @st.cache_data(ttl=10)
 def get_d():
     try:
@@ -37,36 +37,40 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 폼 외부에서 선택을 받아야 '직접 입력' 창이 실시간으로 뜹니다.
-    # 하지만 새로고침 방지를 위해 입력값들은 최대한 세션에 담거나 폼 내부 로직을 활용합니다.
+    # 상단 입력 레이아웃
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #")
     patient = c1.text_input("Patient")
     
-    # 1. 클리닉 선택 및 하위 입력창
+    # 1. 클리닉 선택
     cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"])
     
     final_cl_val = ""
     if sel_cl == "➕ 직접 입력":
-        final_cl_val = c2.text_input("👉 클리닉 이름을 입력하세요")
+        final_cl_val = c2.text_input("👉 클리닉 이름을 입력하세요", key="cl_custom")
     else:
         final_cl_val = sel_cl
         
-    # 2. 의사 선택 및 하위 입력창
-    doc_opts = ["선택", "➕ 직접 입력"]
-    if sel_cl not in ["선택", "➕ 직접 입력"]:
+    # 2. 의사 선택 로직 (개선: 클리닉 미선택 시 전체 의사 목록 표시)
+    if sel_cl in ["선택", "➕ 직접 입력"]:
+        # 클리닉이 선택되지 않았을 때는 Reference 시트의 모든 의사 표시
+        all_docs = ref_df.iloc[:,2].unique()
+        doc_opts = sorted([d for d in all_docs if d and str(d)!='nan' and d!='Doctor'])
+    else:
+        # 특정 클리닉이 선택되었을 때는 해당 병원 의사만 표시
         docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
-        doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
-    sel_doc = c3.selectbox("Doctor", doc_opts)
+        doc_opts = sorted([d for d in docs if d and str(d)!='nan'])
+    
+    sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"])
     
     final_doc_val = ""
     if sel_doc == "➕ 직접 입력":
-        final_doc_val = c3.text_input("👉 의사 이름을 입력하세요")
+        final_doc_val = c3.text_input("👉 의사 이름을 입력하세요", key="doc_custom")
     else:
         final_doc_val = sel_doc
 
-    # 💡 세부 정보부터는 st.form을 사용하여 타이핑 중 새로고침 차단
+    # 💡 세부 정보 설정 (st.form으로 입력 중 새로고침 차단)
     with st.form("detail_input_form", clear_on_submit=True):
         st.markdown("---")
         d1, d2, d3 = st.columns(3)
@@ -78,9 +82,9 @@ with t1:
         rd = d2.date_input("접수일", date.today())
         cp = d2.date_input("완료일", date.today()+timedelta(1))
         
+        # 날짜 로직: 마감일 선택 시 출고일 자동 계산 (-2일)
         due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        # 💡 요청하신 마감일 기준 -2일 로직
-        shp_date = d3.date_input("출고일 (마감일 -2일 자동계산)", due_date - timedelta(days=2))
+        shp_date = d3.date_input("출고일 (마감일 -2일)", due_date - timedelta(days=2))
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
@@ -92,20 +96,21 @@ with t1:
         submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
 
     if submit:
-        # 필수값 체크
+        # 필수 입력 체크
         if not case_no or final_cl_val in ["선택", ""]:
-            st.error("Case #와 Clinic은 필수 항목입니다.")
+            st.error("Case #와 Clinic은 필수 항목입니다. (의사 검색 후 클리닉도 꼭 확인해주세요!)")
         else:
-            # 중복 체크
+            # Case # + Patient 중복 체크
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
             if not duplicate.empty:
-                st.warning(f"⚠️ 중복! Case #{case_no}, 환자명 {patient}가 이미 있습니다.")
+                st.warning(f"⚠️ 중복! Case #{case_no}, 환자명 {patient} 데이터가 이미 존재합니다.")
             else:
                 with st.spinner("저장 중..."):
+                    # 가격 자동 책정 (Clinic 이름 기준)
                     p_u = 180
                     try:
-                        if sel_cl not in ["선택", "➕ 직접 입력"]:
-                            p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+                        price_match = ref_df[ref_df.iloc[:, 1] == final_cl_val].iloc[0, 3]
+                        p_u = int(float(price_match))
                     except: p_u = 180
                     
                     dfmt = '%Y-%m-%d'
@@ -122,9 +127,9 @@ with t1:
                     conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
                     st.success("저장 성공! 초기화합니다.")
                     time.sleep(1)
-                    st.rerun() # 저장 후 싹 비우고 맨 위로 이동
+                    st.rerun()
 
-# --- [정산/검색 탭 동일 유지] ---
+# --- [정산 / 검색 탭] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
