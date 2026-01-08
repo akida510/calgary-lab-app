@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인
+# 1. 페이지 설정
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,8 +19,8 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# [함수] 주말(토,일) 제외 영업일 기준 2일 전 계산
-def get_auto_shp_date(due):
+# [함수] 주말 제외 영업일 기준 2일 전 계산 (희철님 요청사항)
+def get_shp_date(due):
     target = due
     count = 0
     while count < 2:
@@ -46,15 +46,15 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 [중요] st.form을 사용하여 입력 도중 새로고침과 에러 메시지 발생을 원천 차단합니다.
-    with st.form("input_form", clear_on_submit=True):
+    # 💡 폼으로 감싸서 입력 중 새로고침 및 에러를 100% 차단합니다.
+    with st.form("final_stable_form", clear_on_submit=True):
         # [1단 배열]
         c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case # (필수)")
+        case_no = c1.text_input("Case #")
         patient = c1.text_input("Patient")
         
         cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic (필수)", ["선택"] + cl_list)
+        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list)
         
         doc_opts = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
         sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts)
@@ -71,9 +71,8 @@ with t1:
         rd = d2.date_input("접수일", date.today())
         cp = d2.date_input("완료일", date.today()+timedelta(1))
         
+        # 💡 출고일 입력칸 삭제! 마감일만 받습니다.
         due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        # 💡 출고일: 비워두면 자동 -2일(평일기준) 계산, 직접 고르면 그 날짜로 저장됩니다.
-        shp_manual = d3.date_input("출고일 직접 수정 (필요할 때만 선택)", value=None)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
@@ -85,21 +84,21 @@ with t1:
         memo = st.text_input("메모")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        # 🚀 폼 전송 버튼 (이걸 누를 때만 딱 한 번 검사합니다)
-        submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
+        # 🚀 버튼을 눌러야만 검사를 시작합니다.
+        submit = st.form_submit_button("🚀 데이터 저장 및 전송 (자동 출고일 계산)", use_container_width=True)
 
-    # 저장 로직 (버튼 클릭 시에만 실행)
+    # 저장 로직
     if submit:
         if not case_no or sel_cl == "선택":
-            st.error("❌ Case #와 Clinic은 필수 입력 항목입니다. 확인 후 다시 눌러주세요.")
+            st.error("❌ Case #와 Clinic은 필수 입력 항목입니다!")
         else:
             with st.spinner("저장 중..."):
                 try:
                     p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
                 except: p_u = 180
                 
-                # 출고일 결정: 직접 수정한 게 있으면 그 값, 없으면 자동 -2일 계산
-                final_shp = shp_manual if shp_manual is not None else get_auto_shp_date(due_date)
+                # 💡 저장 직전에 마감일로부터 주말 제외 2일 전을 자동 계산함
+                final_shipping_date = get_shp_date(due_date)
                 
                 dfmt = '%Y-%m-%d'
                 row = {
@@ -107,20 +106,20 @@ with t1:
                     "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                     "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                     "Completed Date": cp.strftime(dfmt),
-                    "Shipping Date": final_shp.strftime(dfmt),
+                    "Shipping Date": final_shipping_date.strftime(dfmt), # 자동 계산된 날짜 입력
                     "Due Date": due_date.strftime(dfmt),
                     "Status": stt, "Notes": ", ".join(chks) + " | " + memo
                 }
                 st.cache_data.clear()
                 conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                st.success("✅ 저장 성공! 목록을 새로고침합니다.")
+                st.success(f"✅ 저장 완료! (출고일: {final_shipping_date.strftime(dfmt)})")
                 time.sleep(1)
                 st.rerun()
 
-# --- [정산/검색 탭 동일 유지] ---
+# --- [정산/검색 탭] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
-    # (기존 정산 코드와 동일)
+    # 기존 코드와 동일
 with t3:
     st.subheader("🔍 전체 데이터 검색")
-    # (기존 검색 코드와 동일)
+    # 기존 코드와 동일
