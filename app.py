@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (절대 유지)
+# 1. 페이지 설정 및 디자인 (기존 디자인 100% 유지)
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -20,7 +20,7 @@ st.markdown(
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # 2. 데이터 로딩 (안정적인 캐시)
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=20)
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
@@ -37,30 +37,34 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    with st.form("input_form", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case #")
-        patient = c1.text_input("Patient")
-        
-        # 클리닉 선택 및 하위 메뉴
-        cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접"])
-        f_cl_input = ""
-        if sel_cl == "➕ 직접":
-            f_cl_input = c2.text_input("👉 클리닉 이름 입력")
-        
-        # 의사 선택 및 하위 메뉴
-        doc_opts = ["선택", "➕ 직접"]
-        if sel_cl not in ["선택", "➕ 직접"]:
-            docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
-            doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
-        sel_doc = c3.selectbox("Doctor", doc_opts)
-        f_doc_input = ""
-        if sel_doc == "➕ 직접":
-            f_doc_input = c3.text_input("👉 의사 이름 입력")
+    # 💡 직접 입력창이 즉각 나타나도록 폼 외부에서 먼저 선택 (디자인은 유지)
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #")
+    patient = c1.text_input("Patient")
+    
+    # 클리닉 선택
+    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접"])
+    
+    # 💡 "➕ 직접" 선택 시 즉시 입력창 등장 (기존 디자인 유지)
+    f_cl_input = ""
+    if sel_cl == "➕ 직접":
+        f_cl_input = c2.text_input("👉 클리닉 이름 입력")
+    
+    # 의사 선택
+    doc_opts = ["선택", "➕ 직접"]
+    if sel_cl not in ["선택", "➕ 직접"]:
+        docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
+        doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
+    sel_doc = c3.selectbox("Doctor", doc_opts)
+    
+    f_doc_input = ""
+    if sel_doc == "➕ 직접":
+        f_doc_input = c3.text_input("👉 의사 이름 입력")
 
+    # 💡 세부설정부터는 st.form을 사용하여 데이터 보호
+    with st.form("detail_form", clear_on_submit=True):
         st.markdown("---")
-        
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
@@ -76,6 +80,7 @@ with t1:
 
         st.markdown("---")
         
+        # 체크리스트 및 사진 (기존 디자인 유지)
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
@@ -90,10 +95,10 @@ with t1:
         if not case_no or final_cl in ["선택", ""]:
             st.error("Case #와 Clinic은 필수 입력 항목입니다.")
         else:
-            # 중복 체크 로직
+            # 중복 체크 (Case # + Patient)
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
             if not duplicate.empty:
-                st.warning(f"⚠️ 중복 데이터 발견! Case #{case_no}, 환자명 {patient} 데이터가 이미 존재합니다.")
+                st.warning(f"⚠️ 중복 데이터 발견! Case #{case_no}, 환자명 {patient} 데이터가 이미 있습니다.")
             else:
                 with st.spinner("저장 중..."):
                     p_u = 180
@@ -103,29 +108,20 @@ with t1:
                     except: p_u = 180
                     
                     dfmt = '%Y-%m-%d'
-                    # 💡 잘렸던 딕셔너리 부분 복구 완료
                     row = {
-                        "Case #": case_no.strip(), 
-                        "Clinic": final_cl, 
-                        "Doctor": final_doc, 
-                        "Patient": patient.strip(),
-                        "Arch": arch, 
-                        "Material": mat, 
-                        "Price": p_u, 
-                        "Qty": qty, 
-                        "Total": p_u*qty,
+                        "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
+                        "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                         "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                         "Completed Date": cp.strftime(dfmt),
                         "Shipping Date": shp_date.strftime(dfmt),
                         "Due Date": due_date.strftime(dfmt),
-                        "Status": stt, 
-                        "Notes": ", ".join(chks) + " | " + memo
+                        "Status": stt, "Notes": ", ".join(chks) + " | " + memo
                     }
                     st.cache_data.clear()
                     conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
                     st.success("저장 성공!"); time.sleep(1); st.rerun()
 
-# --- [TAB 2: 정산] ---
+# --- [TAB 2: 정산] --- (디자인 유지)
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
@@ -149,7 +145,7 @@ with t2:
             m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
             m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
 
-# --- [TAB 3: 검색] ---
+# --- [TAB 3: 검색] --- (디자인 유지)
 with t3:
     st.subheader("🔍 전체 데이터 검색")
     qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
