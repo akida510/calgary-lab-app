@@ -48,22 +48,20 @@ with t1:
     
     # 💡 st.form으로 감싸서 입력 중 새로고침 및 데이터 증발 방지
     with st.form("input_form", clear_on_submit=True):
-        # [입력 1단] 디자인 원상복구
+        # [입력 1단] 선택창 밑에 있던 불필요한 입력창 모두 삭제
         c1, c2, c3 = st.columns(3)
         case_no = c1.text_input("Case #")
         patient = c1.text_input("Patient")
         
         cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"])
-        custom_cl = c2.text_input("직접 입력(Clinic)") # 디자인 가이드에 따른 배치
+        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list) # 직접 입력 옵션 삭제
         
         doc_opts = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-        sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"])
-        custom_doc = c3.text_input("직접 입력(Doctor)")
+        sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts) # 직접 입력 옵션 삭제
 
         st.markdown("---")
         
-        # [입력 2단] 날짜 및 수량
+        # [입력 2단] 
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
@@ -74,12 +72,12 @@ with t1:
         cp = d2.date_input("완료일", date.today()+timedelta(1))
         
         due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        st.caption("※ 출고일은 마감일 기준 평일 -2일로 자동 계산되어 저장됩니다.")
+        st.caption("※ 출고일은 마감일 기준 평일 -2일로 자동 저장됩니다.")
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
         
-        # [입력 3단] 체크리스트 및 메모
+        # [입력 3단]
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
@@ -88,26 +86,22 @@ with t1:
         st.markdown("<br>", unsafe_allow_html=True)
         submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
 
-    # 저장 버튼 처리
+    # 🚀 저장 처리 (폼 제출 시에만 실행되므로 에러 없음)
     if submit:
-        final_cl = custom_cl if sel_cl == "➕ 직접 입력" else sel_cl
-        final_doc = custom_doc if sel_doc == "➕ 직접 입력" else sel_doc
-        
-        # ❌ 필수값 검증 (이전 방식의 유실 문제 해결)
-        if not case_no or final_cl in ["선택", ""]:
+        if not case_no or sel_cl == "선택":
             st.error("❌ Case #와 Clinic은 필수 입력 항목입니다.")
         else:
             with st.spinner("저장 중..."):
                 try:
-                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == final_cl].iloc[0, 3]))
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
                 except: p_u = 180
                 
-                # 주말 제외 출고일 계산
+                # 주말 제외 출고일 자동 계산
                 final_shp_date = get_shp_date(due_date)
                 
                 dfmt = '%Y-%m-%d'
                 row = {
-                    "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
+                    "Case #": case_no.strip(), "Clinic": sel_cl, "Doctor": sel_doc, "Patient": patient.strip(),
                     "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                     "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                     "Completed Date": cp.strftime(dfmt),
@@ -117,14 +111,13 @@ with t1:
                 }
                 st.cache_data.clear()
                 conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                st.success("✅ 저장 성공! 목록을 새로고침합니다.")
+                st.success("✅ 저장 성공!")
                 time.sleep(1)
                 st.rerun()
 
-# --- [정산 / 검색 탭 디자인 유지] ---
+# --- [정산 / 검색 탭 디자인 고정] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
-    # ... (정산 로직 생략, 기존 디자인 유지)
     today = date.today()
     c_y, c_m = st.columns(2)
     sel_year = c_y.selectbox("연도", range(today.year, today.year - 5, -1))
