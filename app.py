@@ -43,13 +43,12 @@ def get_data():
         return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
     except: return pd.DataFrame()
 
-# 💡 APIError 방지를 위한 Reference 시트 로딩 보강
+# APIError 방지를 위한 Reference 시트 로딩 보강
 @st.cache_data(ttl=600)
 def get_ref():
     try:
         return conn.read(worksheet="Reference", ttl=600).astype(str)
     except Exception:
-        # 에러 발생 시 빈 데이터프레임 반환하여 앱 중단 방지
         return pd.DataFrame(columns=["Clinic", "Doctor", "Price"])
 
 main_df = get_data()
@@ -64,7 +63,6 @@ with t1:
     case_no = c1.text_input("Case #", key="c" + iter_no)
     patient = c1.text_input("Patient", key="p" + iter_no)
     
-    # 의사 선택 (Reference 시트가 비어있어도 오류 안 나게 처리)
     docs = []
     if not ref.empty and len(ref.columns) > 2:
         docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
@@ -72,7 +70,6 @@ with t1:
     s_doc = c3.selectbox("Doctor (의사)", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no)
     f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if s_doc=="➕ 직접" else s_doc
     
-    # 병원 자동 매칭
     a_cl = ""
     if s_doc not in ["선택", "➕ 직접"] and not ref.empty:
         match = ref[ref.iloc[:, 2] == s_doc]
@@ -116,47 +113,4 @@ with t1:
                 p_m = ref[ref.iloc[:, 1] == f_cl]
                 if not p_m.empty:
                     try: p_u = int(float(p_m.iloc[0, 3]))
-                    except: p_u = 180
-            
-            dt_fmt = '%Y-%m-%d'
-            new_row = {
-                "Case #": case_no, "Clinic": f_cl if f_cl != "선택" else "",
-                "Doctor": f_doc, "Patient": patient, "Arch": arch, "Material": mat,
-                "Price": p_u, "Qty": qty, "Total": p_u * qty,
-                "Receipt Date": "-" if is_33 else rd.strftime(dt_fmt),
-                "Completed Date": cp.strftime(dt_fmt),
-                "Shipping Date": shp_val.strftime(dt_fmt),
-                "Due Date": due_val.strftime(dt_fmt),
-                "Status": stt, "Notes": ", ".join(chks) + (" | " + memo if memo else "")
-            }
-            conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
-            st.success("✅ 저장 성공!")
-            time.sleep(1)
-            reset_all()
-            st.rerun()
-
-# --- 정산/검색 ---
-with t2:
-    st.subheader("💰 정산")
-    today_dt = date.today()
-    sy, sm = st.columns(2)
-    s_y = sy.selectbox("연도", range(today_dt.year, today_dt.year - 5, -1))
-    s_m = sm.selectbox("월", range(1, 13), index=today_dt.month - 1)
-    if not main_df.empty:
-        pdf = main_df.copy()
-        pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
-        m_dt = pdf[(pdf['SD'].dt.year == s_y) & (pdf['SD'].dt.month == s_m)]
-        if not m_dt.empty:
-            st.dataframe(m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']], use_container_width=True)
-            pay = m_dt[m_dt['Status'].str.lower() == 'normal']
-            tot = pd.to_numeric(pay['Qty'], errors='coerce').sum()
-            st.metric("총 수량", str(int(tot)) + " ea")
-
-with t3:
-    st.subheader("🔍 검색")
-    q_s = st.text_input("검색어", key="search_box")
-    if not main_df.empty:
-        if q_s:
-            f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
-            st.dataframe(f_df, use_container_width=True)
-        else: st.dataframe(main_df.tail(20), use_container_width=True)
+                    except
