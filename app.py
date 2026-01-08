@@ -4,14 +4,14 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 제목/제작자 표시
+# 1. 페이지 설정 및 제목 디자인
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
     """
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1 style="margin: 0;">🦷 Skycad Lab Night Guard Manager</h1>
-        <span style="font-size: 12px; font-weight: bold; color: #555;">Designed By Heechul Jung</span>
+        <span style="font-size: 13px; font-weight: bold; color: #333;">Designed By Heechul Jung</span>
     </div>
     """,
     unsafe_allow_html=True
@@ -25,7 +25,7 @@ if "it" not in st.session_state:
 
 i = st.session_state.it
 
-# 날짜 초기값 및 동기화 로직
+# 날짜 초기값 설정 로직
 if f"due{i}" not in st.session_state:
     st.session_state[f"due{i}"] = date.today() + timedelta(days=7)
 if f"shp{i}" not in st.session_state:
@@ -41,18 +41,14 @@ def reset_fields():
     st.session_state.it += 1
     st.cache_data.clear()
 
-# 💡 최적화 포인트: TTL(캐시 유지시간)을 10초로 늘려 API 호출 횟수 감소
-@st.cache_data(ttl=10) 
+@st.cache_data(ttl=1)
 def get_d():
     try:
-        # 💡 데이터 로드 시 오류 방지를 위해 시트 전체를 한 번에 읽음
         df = conn.read(ttl=0).astype(str)
         df = df[df['Case #'].str.strip() != ""]
         df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
-    except Exception as e:
-        st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
@@ -84,11 +80,21 @@ with t1:
         is_33 = d2.checkbox("3D 스캔", True, key=f"3d{i}")
         rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
-        if d2.checkbox("마감일/출고일 지정", True, key=f"h_d{i}"):
+        
+        has_d = d2.checkbox("마감일/출고일 지정", True, key=f"h_d{i}")
+        if has_d:
             due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
             shp = d3.date_input("출고일", key=f"shp{i}")
-        else: due = shp = None
+            s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
+        else: due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
+
+    # 💡 복구된 체크리스트 및 사진 업로드 섹션
+    with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
+        chk_raw = ref_df.iloc[:,3:].values.flatten()
+        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
+        up_img = st.file_uploader("📸 사진 업로드 (옵션)", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+        memo = st.text_input("메모", key=f"me{i}")
 
     if st.button("🚀 데이터 저장", use_container_width=True):
         if not case_no or f_cl in ["선택", ""]: st.error("정보 부족")
@@ -99,7 +105,8 @@ with t1:
                     p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
             except: p_u = 180
             dfmt = '%Y-%m-%d'
-            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":("-" if is_33 else rd.strftime(dfmt)),"Completed Date":cp.strftime(dfmt),"Shipping Date":(shp.strftime(dfmt) if shp else "-"),"Due Date":(due.strftime(dfmt) if due else "-"),"Status":stt}
+            notes_str = ", ".join(chks) + (f" | {memo}" if memo else "")
+            row = {"Case #":case_no,"Clinic":f_cl,"Doctor":f_doc,"Patient":patient,"Arch":arch,"Material":mat,"Price":p_u,"Qty":qty,"Total":p_u*qty,"Receipt Date":("-" if is_33 else rd.strftime(dfmt)),"Completed Date":cp.strftime(dfmt),"Shipping Date":(shp.strftime(dfmt) if shp else "-"),"Due Date":(due.strftime(dfmt) if due else "-"),"Status":stt, "Notes": notes_str}
             conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
             st.success("저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
 
@@ -126,16 +133,16 @@ with t2:
             m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
             m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
             m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
+        else: st.info("데이터 없음")
 
 # --- [TAB 3: 검색] ---
 with t3:
     st.subheader("🔍 전체 데이터 검색")
-    qs = st.text_input("환자 이름 또는 Case # 입력", key="search_input")
+    qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
     if not m_df.empty:
         if qs:
             f_df = m_df[m_df['Case #'].str.contains(qs, case=False, na=False) | m_df['Patient'].str.contains(qs, case=False, na=False)]
-            st.write(f"결과: {len(f_df)}건")
             st.dataframe(f_df, use_container_width=True)
         else:
-            st.write("📋 최근 데이터 (20건)")
+            st.write("📋 최근 등록 데이터 (20건)")
             st.dataframe(m_df.tail(20), use_container_width=True)
