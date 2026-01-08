@@ -19,21 +19,17 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 💡 [함수] 주말 제외 영업일 기준 2일 전 계산
+# [함수] 주말 제외 영업일 기준 2일 전 계산
 def get_shp_date(due):
     target = due
     count = 0
     while count < 2:
         target -= timedelta(days=1)
-        if target.weekday() < 5: # 월~금(0~4)만 카운트
+        if target.weekday() < 5: # 월(0)~금(4)만 카운트
             count += 1
     return target
 
-# 2. 초기화 세션
-if "reset_ver" not in st.session_state:
-    st.session_state.reset_ver = 0
-
-# 3. 데이터 로딩
+# 2. 데이터 로딩
 @st.cache_data(ttl=5)
 def get_d():
     try:
@@ -50,71 +46,67 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 # --- [TAB 1: 등록] ---
 with t1:
     st.subheader("📋 입력")
-    v = st.session_state.reset_ver
     
     # [입력 1단]
     c1, c2, c3 = st.columns(3)
-    case_no = c1.text_input("Case #", key=f"case_{v}")
-    patient = c1.text_input("Patient", key=f"pat_{v}")
+    case_no = c1.text_input("Case #")
+    patient = c1.text_input("Patient")
     
     cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-    sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"], key=f"cl_sel_{v}")
-    f_cl_input = c2.text_input("👉 클리닉 이름 직접 입력", key=f"cl_custom_{v}") if sel_cl == "➕ 직접 입력" else ""
+    sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"])
+    f_cl_val = c2.text_input("👉 클리닉 이름 직접 입력") if sel_cl == "➕ 직접 입력" else sel_cl
     
+    # 의사 선택 (전체 의사 검색 지원)
     all_docs = ref_df.iloc[:,2].unique()
     doc_opts = sorted([d for d in all_docs if d and str(d)!='nan' and d!='Doctor'])
     if sel_cl not in ["선택", "➕ 직접 입력"]:
         docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
         doc_opts = sorted([d for d in docs if d and str(d)!='nan'])
-    sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"], key=f"doc_sel_{v}")
-    f_doc_input = c3.text_input("👉 의사 이름 직접 입력", key=f"doc_custom_{v}") if sel_doc == "➕ 직접 입력" else ""
+    sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"])
+    f_doc_val = c3.text_input("👉 의사 이름 직접 입력") if sel_doc == "➕ 직접 입력" else sel_doc
 
     st.markdown("---")
     
-    # [입력 2단: 상세 설정 및 실시간 날짜 계산]
+    # [입력 2단: 날짜 및 상세 설정]
     d1, d2, d3 = st.columns(3)
-    arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{v}")
-    mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{v}")
-    qty = d1.number_input("Qty", 1, 10, 1, key=f"qty_{v}")
+    arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
+    mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
+    qty = d1.number_input("Qty", 1, 10, 1)
     
-    is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key=f"is33_{v}")
-    rd = d2.date_input("접수일", date.today(), key=f"rd_{v}")
-    cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cp_{v}")
+    is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True)
+    rd = d2.date_input("접수일", date.today())
+    cp = d2.date_input("완료일", date.today()+timedelta(1))
     
-    # 💡 실시간 주말 제외 날짜 자동 반영
-    due_date = d3.date_input("마감일", date.today() + timedelta(days=7), key=f"due_{v}")
-    auto_shp = get_shp_date(due_date)
-    shp_date = d3.date_input("출고일 (영업일 기준 -2일)", auto_shp, key=f"shp_{v}")
-    stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"stt_{v}")
+    # 💡 실시간 주말 제외 날짜 자동 계산 (즉시 반영됨)
+    due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
+    calculated_shp = get_shp_date(due_date)
+    shp_date = d3.date_input("출고일 (영업일 기준 -2일)", calculated_shp)
+    stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
     st.markdown("---")
     
-    # [입력 3단: 디자인 유지 - 사진 및 체크리스트]
+    # [입력 3단: 체크리스트 및 사진 업로드]
     chk_raw = ref_df.iloc[:,3:].values.flatten()
-    chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"chk_{v}")
-    up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{v}")
-    memo = st.text_input("메모", key=f"memo_{v}")
+    chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
+    up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
+    memo = st.text_input("메모")
 
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # 🚀 저장 버튼
     if st.button("🚀 데이터 저장 및 전송", use_container_width=True, type="primary"):
-        # 최종 값 매칭
-        final_cl = f_cl_input.strip() if sel_cl == "➕ 직접 입력" else sel_cl
-        final_doc = f_doc_input.strip() if sel_doc == "➕ 직접 입력" else sel_doc
-        
-        # ❌ 엄격한 필수 입력 검증
-        if not case_no.strip() or final_cl in ["선택", ""]:
+        # 최종 입력값 검증
+        if not case_no or f_cl_val in ["선택", ""]:
             st.error("❌ Case #와 Clinic은 필수 입력 항목입니다.")
         else:
             with st.spinner("저장 중..."):
                 try:
-                    p_match = ref_df[ref_df.iloc[:, 1] == final_cl].iloc[0, 3]
-                    p_u = int(float(p_match))
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == f_cl_val].iloc[0, 3]))
                 except: p_u = 180
                 
                 dfmt = '%Y-%m-%d'
                 row = {
-                    "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
+                    "Case #": case_no.strip(), "Clinic": f_cl_val, "Doctor": f_doc_val, "Patient": patient.strip(),
                     "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                     "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                     "Completed Date": cp.strftime(dfmt),
@@ -124,12 +116,11 @@ with t1:
                 }
                 st.cache_data.clear()
                 conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                st.success("✅ 저장 성공! 화면을 초기화합니다.")
+                st.success("✅ 저장 성공!")
                 time.sleep(1)
-                st.session_state.reset_ver += 1
-                st.rerun()
+                st.rerun() # 저장 후 깨끗하게 비우기
 
-# --- [정산/검색 탭] ---
+# --- [TAB 2 / TAB 3 디자인 유지] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
