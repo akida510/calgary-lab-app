@@ -67,25 +67,32 @@ with t1:
     st.subheader("📋 입력")
     c1, c2, c3 = st.columns(3)
     
-    case_no = c1.text_input("Case # (필수)", key=f"c{i}")
-    patient = c1.text_input("Patient", key=f"p{i}")
+    case_no = c1.text_input("Case # (필수)", key=f"c_input_{i}")
+    patient = c1.text_input("Patient", key=f"p_input_{i}")
     
-    # 의사 선택 (모든 의사 리스트)
-    all_docs = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-    sel_doc = c3.selectbox("Doctor (의사 선택)", ["선택"] + all_docs + ["➕ 직접"], key=f"d{i}")
-    f_doc = c3.text_input("직접 입력 (Doctor)", key=f"fd{i}") if sel_doc=="➕ 직접" else sel_doc
+    # 의사 선택
+    docs = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    sel_doc = c3.selectbox("Doctor (선택)", ["선택"] + docs + ["➕ 직접"], key=f"d_sel_{i}")
+    f_doc = c3.text_input("직접 입력 (Doctor)", key=f"d_txt_{i}") if sel_doc=="➕ 직접" else sel_doc
     
-    # 의사에 따른 병원 자동 매칭
-    auto_clinic = ""
+    # 병원 자동 매칭
+    auto_cl = ""
     if sel_doc not in ["선택", "➕ 직접"]:
         match = ref_df[ref_df.iloc[:, 2] == sel_doc]
-        if not match.empty:
-            auto_clinic = match.iloc[0, 1]
+        if not match.empty: auto_cl = match.iloc[0, 1]
 
-    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-    default_cl_idx = 0
-    if auto_clinic in cl_list:
-        default_cl_idx = cl_list.index(auto_clinic) + 1
+    clinics = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    idx = clinics.index(auto_cl) + 1 if auto_cl in clinics else 0
 
-    sel_cl = c2.selectbox("Clinic (병원명)", ["선택"] + cl_list + ["➕ 직접"], index=default_cl_idx, key=f"cl{i}")
-    f_cl = c2.text_input("직접 입력 (Clinic)", key=f"fcl{
+    sel_cl = c2.selectbox("Clinic (병원명)", ["선택"] + clinics + ["➕ 직접"], index=idx, key=f"cl_sel_{i}")
+    # 💡 에러 발생 지점 수정
+    f_cl = c2.text_input("직접 입력 (Clinic)", key=f"cl_txt_{i}") if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else auto_cl)
+
+    with st.expander("⚙️ 세부설정", expanded=True):
+        d1, d2, d3 = st.columns(3)
+        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{i}")
+        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{i}")
+        qty = d1.number_input("Qty", 1, 10, 1, key=f"qty_{i}")
+        is_33 = d2.checkbox("3D 스캔", True, key=f"3d_{i}")
+        rd = d2.date_input("접수일", date.today(), key=f"rd_{i}", disabled=is_33)
+        cp =
