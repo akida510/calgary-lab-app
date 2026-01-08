@@ -43,7 +43,6 @@ def get_data():
         return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
     except: return pd.DataFrame()
 
-# Reference 시트 로딩
 @st.cache_data(ttl=600)
 def get_ref():
     try:
@@ -63,25 +62,22 @@ with t1:
     case_no = c1.text_input("Case #", key="c" + iter_no)
     patient = c1.text_input("Patient", key="p" + iter_no)
     
-    docs = []
-    if not ref.empty and len(ref.columns) > 2:
-        docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    # 1. 병원 리스트 준비
+    clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic (병원)", ["선택"] + clinics + ["➕ 직접"], key="sc" + iter_no)
     
-    s_doc = c3.selectbox("Doctor (의사)", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no)
-    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if s_doc=="➕ 직접" else s_doc
-    
-    a_cl = ""
-    if s_doc not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 2] == s_doc]
-        if not match.empty: a_cl = match.iloc[0, 1]
+    # 2. 병원 선택 시 해당 병원의 의사들만 필터링
+    filtered_docs = []
+    if sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
+        filtered_docs = sorted(ref[ref.iloc[:,1] == sel_cl].iloc[:,2].unique().tolist())
+    else:
+        filtered_docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
 
-    clinics = []
-    if not ref.empty and len(ref.columns) > 1:
-        clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    # 3. 의사 선택창 (병원을 먼저 고르면 해당 병원 의사가 첫 번째로 나오게 함)
+    sel_doc = c3.selectbox("Doctor (의사)", ["선택"] + filtered_docs + ["➕ 직접"], key="sd" + iter_no)
     
-    idx = clinics.index(a_cl) + 1 if a_cl in clinics else 0
-    s_cl = c2.selectbox("Clinic (병원)", ["선택"] + clinics + ["➕ 직접"], index=idx, key="sc" + iter_no)
-    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if s_cl=="➕ 직접" else (s_cl if s_cl != "선택" else a_cl)
+    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else sel_cl
+    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
 
     with st.expander("⚙️ 세부설정", expanded=True):
         d1, d2, d3 = st.columns(3)
@@ -91,7 +87,6 @@ with t1:
         is_33 = d2.checkbox("3D Scan", True, key="d3" + iter_no)
         rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key="cp" + iter_no)
-        
         due_val = d3.date_input("마감일", key="due" + iter_no, on_change=sync)
         shp_val = d3.date_input("출고일", key="shp" + iter_no)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st" + iter_no)
@@ -106,10 +101,11 @@ with t1:
 
     if st.button("🚀 데이터 저장", use_container_width=True, type="primary"):
         if not case_no or f_doc in ["선택", ""]:
-            st.error("❌ Case #와 Doctor(의사명)는 필수입니다.")
+            st.error("❌ Case #와 Doctor는 필수입니다.")
         else:
+            # 병원명 기준 가격 자동 매칭
             p_u = 180
-            if f_cl and not ref.empty:
+            if f_cl and f_cl != "선택" and not ref.empty:
                 p_m = ref[ref.iloc[:, 1] == f_cl]
                 if not p_m.empty:
                     try: p_u = int(float(p_m.iloc[0, 3]))
@@ -132,7 +128,7 @@ with t1:
             reset_all()
             st.rerun()
 
-# --- [TAB 2: 정산] ---
+# --- 정산/검색 (기존과 동일) ---
 with t2:
     st.subheader("💰 정산")
     today_dt = date.today()
@@ -145,21 +141,16 @@ with t2:
         m_dt = pdf[(pdf['SD'].dt.year == s_y) & (pdf['SD'].dt.month == s_m)]
         if not m_dt.empty:
             cols = ['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
-            # 💡 hide_index=True를 추가하여 불필요한 번호를 없앴습니다.
             st.dataframe(m_dt[cols], use_container_width=True, hide_index=True)
-            
             pay = m_dt[m_dt['Status'].str.lower() == 'normal']
             tot = pd.to_numeric(pay['Qty'], errors='coerce').sum()
             st.metric("총 수량", str(int(tot)) + " ea")
 
-# --- [TAB 3: 검색] ---
 with t3:
     st.subheader("🔍 검색")
     q_s = st.text_input("검색어", key="search_box")
     if not main_df.empty:
         if q_s:
             f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
-            # 💡 검색 결과에서도 인덱스를 숨깁니다.
             st.dataframe(f_df, use_container_width=True, hide_index=True)
-        else: 
-            st.dataframe(main_df.tail(20), use_container_width=True, hide_index=True)
+        else: st.dataframe(main_df.tail(20), use_container_width=True, hide_index=True)
