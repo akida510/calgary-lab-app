@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (절대 유지)
+# 1. 페이지 설정 및 디자인
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,13 +19,13 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# [함수] 주말 제외 영업일 기준 2일 전 계산
+# [함수] 주말(토, 일) 제외 영업일 기준 2일 전 계산
 def get_shp_date(due):
     target = due
     count = 0
     while count < 2:
         target -= timedelta(days=1)
-        if target.weekday() < 5: # 월~금(0~4)만 카운트
+        if target.weekday() < 5: # 월(0)~금(4)만 카운트
             count += 1
     return target
 
@@ -46,9 +46,9 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 st.form을 사용하여 입력 도중 새로고침 및 데이터 유실을 원천 차단합니다.
-    with st.form("main_form", clear_on_submit=True):
-        # [입력 1단]
+    # 💡 st.form을 사용하여 입력 도중 새로고침을 원천 차단합니다.
+    with st.form("input_form", clear_on_submit=True):
+        # [1단 배열]
         c1, c2, c3 = st.columns(3)
         case_no = c1.text_input("Case #")
         patient = c1.text_input("Patient")
@@ -61,7 +61,7 @@ with t1:
 
         st.markdown("---")
         
-        # [입력 2단]
+        # [2단 배열]
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
@@ -72,13 +72,13 @@ with t1:
         cp = d2.date_input("완료일", date.today()+timedelta(1))
         
         due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        # 💡 출고일을 비워두면 자동으로 -2일 계산, 입력하면 입력값으로 저장
-        shp_date_manual = d3.date_input("출고일 (수정 필요시에만 변경)", value=None)
+        # 💡 출고일: 비워두면 주말제외 -2일로 자동 계산되어 저장됩니다.
+        shp_date_custom = d3.date_input("출고일 (수정 필요시에만 입력)", value=None)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
         
-        # [입력 3단]
+        # [3단 배열]
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
@@ -87,7 +87,7 @@ with t1:
         st.markdown("<br>", unsafe_allow_html=True)
         submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
 
-    # 저장 로직 (버튼 클릭 시에만 단 한 번 실행)
+    # 저장 로직 (버튼을 누르는 시점에만 실행됨)
     if submit:
         if not case_no or sel_cl == "선택":
             st.error("❌ Case #와 Clinic은 필수 입력 항목입니다.")
@@ -97,8 +97,8 @@ with t1:
                     p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
                 except: p_u = 180
                 
-                # 💡 출고일 결정 로직: 수동 입력 없으면 주말제외 -2일 자동계산
-                final_shp = shp_date_manual if shp_date_manual else get_shp_date(due_date)
+                # 출고일 결정: 직접 입력했으면 그 날짜, 아니면 주말 제외 -2일 계산
+                final_shp = shp_date_custom if shp_date_custom else get_shp_date(due_date)
                 
                 dfmt = '%Y-%m-%d'
                 row = {
@@ -116,7 +116,7 @@ with t1:
                 time.sleep(1)
                 st.rerun()
 
-# --- [정산/검색 탭 생략 - 기존 디자인 동일] ---
+# --- [정산/검색 탭] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
