@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (기존 디자인 유지)
+# 1. 페이지 설정 및 디자인 (절대 유지)
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,7 +19,7 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 데이터 로딩
+# 2. 데이터 로딩 (안정적인 30초 캐시)
 @st.cache_data(ttl=30)
 def get_d():
     try:
@@ -33,7 +33,7 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록] ---
+# --- [TAB 1: 등록 (중복 체크 및 하위 메뉴 로직)] ---
 with t1:
     st.subheader("📋 입력")
     
@@ -42,24 +42,19 @@ with t1:
         case_no = c1.text_input("Case #")
         patient = c1.text_input("Patient")
         
-        # 클리닉 선택
+        # 클리닉 선택 및 직접 입력 하위 메뉴
         cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"]+cl_list+["➕ 직접"])
-        
-        # 💡 개선: "➕ 직접" 선택 시에만 하위 입력창 표시
+        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접"])
         f_cl_input = ""
         if sel_cl == "➕ 직접":
             f_cl_input = c2.text_input("👉 클리닉 이름 입력")
         
-        # 의사 선택 로직
+        # 의사 선택 및 직접 입력 하위 메뉴
         doc_opts = ["선택", "➕ 직접"]
         if sel_cl not in ["선택", "➕ 직접"]:
             docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
             doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
-        
         sel_doc = c3.selectbox("Doctor", doc_opts)
-        
-        # 💡 개선: "➕ 직접" 선택 시에만 하위 입력창 표시
         f_doc_input = ""
         if sel_doc == "➕ 직접":
             f_doc_input = c3.text_input("👉 의사 이름 입력")
@@ -89,18 +84,16 @@ with t1:
         submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
 
     if submit:
-        # 최종 값 결정
         final_cl = f_cl_input if sel_cl == "➕ 직접" else sel_cl
         final_doc = f_doc_input if sel_doc == "➕ 직접" else sel_doc
         
         if not case_no or final_cl in ["선택", ""]:
             st.error("Case #와 Clinic은 필수 입력 항목입니다.")
         else:
-            # 중복 체크 (Case # + Patient)
+            # 중복 체크 로직
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
-            
             if not duplicate.empty:
-                st.warning(f"⚠️ 중복 데이터 발견! Case #{case_no}, 환자명 {patient} 데이터가 이미 있습니다.")
+                st.warning(f"⚠️ 중복 데이터 발견! Case #{case_no}, 환자명 {patient} 데이터가 이미 존재합니다.")
             else:
                 with st.spinner("저장 중..."):
                     p_u = 180
@@ -117,41 +110,4 @@ with t1:
                         "Completed Date": cp.strftime(dfmt),
                         "Shipping Date": shp_date.strftime(dfmt),
                         "Due Date": due_date.strftime(dfmt),
-                        "Status": stt, "Notes": ", ".join(chks) + " | " + memo
-                    }
-                    st.cache_data.clear()
-                    conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                    st.success("저장 성공!"); time.sleep(1); st.rerun()
-
-# --- [TAB 2: 정산] --- (디자인 유지)
-with t2:
-    st.subheader("💰 기간별 정산 내역")
-    today = date.today()
-    c_y, c_m = st.columns(2)
-    sel_year = c_y.selectbox("연도", range(today.year, today.year - 5, -1))
-    sel_month = c_m.selectbox("월", range(1, 13), index=today.month - 1)
-    
-    pdf = m_df.copy()
-    if not pdf.empty:
-        pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
-        m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
-        if not m_dt.empty:
-            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            v_df.index = m_dt['Case #']; v_df.index.name = "Case #"
-            st.dataframe(v_df, use_container_width=True)
-            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
-            total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
-            extra_qty = max(0, total_qty - 320)
-            m1, m2, m3 = st.columns(3)
-            m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
-            m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
-            m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
-
-# --- [TAB 3: 검색] --- (디자인 유지)
-with t3:
-    st.subheader("🔍 전체 데이터 검색")
-    qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
-    if not m_df.empty:
-        if qs:
-            f_df = m_df[m_df['Case #'].str.contains(qs, case=False, na=False) | m_df['Patient'].str.contains(qs, case=False, na=False)]
-            st.dataframe(f_df,
+                        "Status": stt, "Notes": ", ".join(ch
