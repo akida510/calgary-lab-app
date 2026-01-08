@@ -19,7 +19,7 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 관리 (새로고침 시 데이터 유지용)
+# 2. 세션 상태 관리
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
@@ -31,7 +31,7 @@ def get_working_day_minus_2(due_date):
     count = 0
     while count < 2:
         target -= timedelta(days=1)
-        if target.weekday() < 5:  # 월~금(0~4)
+        if target.weekday() < 5: 
             count += 1
     return target
 
@@ -41,7 +41,7 @@ if f"due{i}" not in st.session_state:
 if f"shp{i}" not in st.session_state:
     st.session_state[f"shp{i}"] = get_working_day_minus_2(st.session_state[f"due{i}"])
 
-# 마감일 변경 시 출고일 자동 갱신 콜백
+# 마감일 변경 시 출고일 자동 갱신
 def sync_dates():
     st.session_state[f"shp{i}"] = get_working_day_minus_2(st.session_state[f"due{i}"])
 
@@ -70,12 +70,12 @@ with t1:
     case_no = c1.text_input("Case #", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
     
-    # 💡 [의사 우선 검색 로직]
+    # 💡 의사 리스트 추출 및 선택
     all_docs = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-    sel_doc = c3.selectbox("Doctor (의사 먼저 검색 가능)", ["선택"] + all_docs + ["➕ 직접"], key=f"d{i}")
+    sel_doc = c3.selectbox("Doctor (의사 검색)", ["선택"] + all_docs + ["➕ 직접"], key=f"d{i}")
     f_doc = c3.text_input("직접 입력 (Doctor)", key=f"fd{i}") if sel_doc=="➕ 직접" else sel_doc
     
-    # 의사 선택에 따른 병원 자동 매칭
+    # 의사 선택에 따른 병원 자동 매칭 로직
     auto_clinic = "선택"
     if sel_doc not in ["선택", "➕ 직접"]:
         try:
@@ -85,12 +85,12 @@ with t1:
 
     cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     
-    # 의사 선택 시 해당 병원을 기본 인덱스로 설정
+    # 매칭된 병원이 리스트에 있으면 해당 위치를 기본값으로
     default_cl_idx = 0
     if auto_clinic in cl_list:
         default_cl_idx = cl_list.index(auto_clinic) + 1
 
-    sel_cl = c2.selectbox("Clinic (의사 선택 시 자동 매칭)", ["선택"] + cl_list + ["➕ 직접"], index=default_cl_idx, key=f"cl{i}")
+    sel_cl = c2.selectbox("Clinic (자동 매칭)", ["선택"] + cl_list + ["➕ 직접"], index=default_cl_idx, key=f"cl{i}")
     f_cl = c2.text_input("직접 입력 (Clinic)", key=f"fcl{i}") if sel_cl=="➕ 직접" else sel_cl
 
     with st.expander("⚙️ 세부설정", expanded=True):
@@ -103,10 +103,43 @@ with t1:
         rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
         
-        # 💡 마감일 변경 시 출고일 자동 계산
         due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
-        shp = d3.date_input("출고일 (자동계산됨)", key=f"shp{i}")
+        shp = d3.date_input("출고일", key=f"shp{i}")
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
     with st.expander("✅ 기타", expanded=True):
-        chk_raw = ref_df.
+        # 💡 에러 났던 지점 수정 (잘림 없이 완성)
+        chk_raw = ref_df.iloc[:,3:].values.flatten()
+        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
+        memo = st.text_input("메모", key=f"me{i}")
+
+    if st.button("🚀 데이터 저장", use_container_width=True, type="primary"):
+        if not case_no or f_cl in ["선택", ""]:
+            st.error("❌ Case #와 Clinic은 필수 항목입니다.")
+        else:
+            p_u = 180
+            try:
+                if f_cl in cl_list:
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == f_cl].iloc[0, 3]))
+            except: p_u = 180
+            
+            dfmt = '%Y-%m-%d'
+            row = {
+                "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
+                "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
+                "Completed Date": cp.strftime(dfmt),
+                "Shipping Date": shp.strftime(dfmt),
+                "Due Date": due.strftime(dfmt),
+                "Status": stt, "Notes": ", ".join(chks) + (f" | {memo}" if memo else "")
+            }
+            conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
+            st.success("✅ 저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
+
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader("💰 기간별 정산 내역")
+    today = date.today()
+    sy, sm = st.columns(2)
+    sel_year = sy.selectbox("연도", range(today.year, today.year - 5, -1))
+    sel_month = sm.selectbox
