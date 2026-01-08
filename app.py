@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (제목 우측 제작자 표시 유지)
+# 1. 페이지 설정 및 디자인
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,29 +19,32 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 관리 (초기화 로직)
+# 2. 세션 상태 관리 (초기화)
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
 i = st.session_state.it
 
-# 날짜 초기값 및 동기화 로직 (-2일 유지)
+# 💡 KeyError 방지를 위한 초기값 강제 설정 로직
 if f"due{i}" not in st.session_state:
     st.session_state[f"due{i}"] = date.today() + timedelta(days=7)
 if f"shp{i}" not in st.session_state:
     st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
 
+# 💡 KeyError 해결: get() 메소드를 사용하여 키가 없을 경우 대비
 def sync_dates():
-    st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
+    due_val = st.session_state.get(f"due{i}")
+    if due_val:
+        st.session_state[f"shp{i}"] = due_val - timedelta(days=2)
 
 def reset_fields():
+    # 현재 인덱스 관련 데이터 삭제
     curr_i = st.session_state.it
-    for key in [f"due{curr_i}", f"shp{curr_i}"]:
-        if key in st.session_state: del st.session_state[key]
+    for k in [f"due{curr_i}", f"shp{curr_i}", f"c{curr_i}", f"p{curr_i}"]:
+        if k in st.session_state: del st.session_state[k]
     st.session_state.it += 1
     st.cache_data.clear()
 
-# API 호출 최적화 (에러 방지용 10초 캐시)
 @st.cache_data(ttl=10) 
 def get_d():
     try:
@@ -55,7 +58,7 @@ m_df = get_d()
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
-# --- [TAB 1: 등록 (체크리스트 & 사진 포함)] ---
+# --- [TAB 1: 등록] ---
 with t1:
     st.subheader("📋 입력")
     c1, c2, c3 = st.columns(3)
@@ -81,14 +84,15 @@ with t1:
         is_33 = d2.checkbox("3D 스캔", True, key=f"3d{i}")
         rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
+        
         if d2.checkbox("마감일/출고일 지정", True, key=f"h_d{i}"):
+            # KeyError 방지를 위해 on_change 로직 보강
             due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
             shp = d3.date_input("출고일", key=f"shp{i}")
             s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
         else: due = shp = s_t = None
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    # ✅ 체크리스트 및 사진 입력 유지
     with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
@@ -108,7 +112,7 @@ with t1:
             conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
             st.success("저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
 
-# --- [TAB 2: 정산 (320개 공제 & 과거 조회 유지)] ---
+# --- [TAB 2: 정산] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
@@ -133,7 +137,7 @@ with t2:
             m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
         else: st.info("데이터 없음")
 
-# --- [TAB 3: 검색 (실시간 필터링)] ---
+# --- [TAB 3: 검색] ---
 with t3:
     st.subheader("🔍 전체 데이터 검색")
     qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
