@@ -10,7 +10,7 @@ st.markdown("### 🦷 Skycad Lab Night Guard Manager")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리 (f-string 제거)
+# 세션 관리 (문자열 결합 방식)
 if "it" not in st.session_state:
     st.session_state.it = 0
 iter_no = str(st.session_state.it)
@@ -23,7 +23,7 @@ def get_shp(d_date):
         if t.weekday() < 5: c += 1
     return t
 
-# 날짜 초기화 (f-string 대신 문자열 결합 사용)
+# 날짜 초기화
 if "due" + iter_no not in st.session_state:
     st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
 if "shp" + iter_no not in st.session_state:
@@ -43,29 +43,45 @@ def get_data():
         return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
     except: return pd.DataFrame()
 
+# 💡 APIError 방지를 위한 Reference 시트 로딩 보강
+@st.cache_data(ttl=600)
+def get_ref():
+    try:
+        return conn.read(worksheet="Reference", ttl=600).astype(str)
+    except Exception:
+        # 에러 발생 시 빈 데이터프레임 반환하여 앱 중단 방지
+        return pd.DataFrame(columns=["Clinic", "Doctor", "Price"])
+
 main_df = get_data()
-ref = conn.read(worksheet="Reference", ttl=600).astype(str)
+ref = get_ref()
 
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
+# --- [TAB 1: 등록] ---
 with t1:
     st.subheader("📋 입력")
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #", key="c" + iter_no)
     patient = c1.text_input("Patient", key="p" + iter_no)
     
-    # 의사 선택 (가장 중요)
-    docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    # 의사 선택 (Reference 시트가 비어있어도 오류 안 나게 처리)
+    docs = []
+    if not ref.empty and len(ref.columns) > 2:
+        docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    
     s_doc = c3.selectbox("Doctor (의사)", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no)
     f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if s_doc=="➕ 직접" else s_doc
     
     # 병원 자동 매칭
     a_cl = ""
-    if s_doc not in ["선택", "➕ 직접"]:
+    if s_doc not in ["선택", "➕ 직접"] and not ref.empty:
         match = ref[ref.iloc[:, 2] == s_doc]
         if not match.empty: a_cl = match.iloc[0, 1]
 
-    clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    clinics = []
+    if not ref.empty and len(ref.columns) > 1:
+        clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    
     idx = clinics.index(a_cl) + 1 if a_cl in clinics else 0
     s_cl = c2.selectbox("Clinic (병원)", ["선택"] + clinics + ["➕ 직접"], index=idx, key="sc" + iter_no)
     f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if s_cl=="➕ 직접" else (s_cl if s_cl != "선택" else a_cl)
@@ -79,23 +95,24 @@ with t1:
         rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key="cp" + iter_no)
         
-        # 날짜 동기화
         due_val = d3.date_input("마감일", key="due" + iter_no, on_change=sync)
         shp_val = d3.date_input("출고일", key="shp" + iter_no)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
     with st.expander("✅ 기타", expanded=True):
-        ch_r = ref.iloc[:,3:].values.flatten()
-        chks = st.multiselect("체크", sorted(list(set([str(x) for x in ch_r if x and str(x)!='nan']))), key="ck" + iter_no)
-        # 💡 에러 발생 지점: f-string 제거로 안전하게 수정
+        chks = []
+        if not ref.empty and len(ref.columns) > 3:
+            ch_r = ref.iloc[:,3:].values.flatten()
+            chks_list = sorted(list(set([str(x) for x in ch_r if x and str(x)!='nan'])))
+            chks = st.multiselect("체크", chks_list, key="ck" + iter_no)
         memo = st.text_input("메모", key="me" + iter_no)
 
     if st.button("🚀 데이터 저장", use_container_width=True, type="primary"):
         if not case_no or f_doc in ["선택", ""]:
-            st.error("❌ Case #와 Doctor(의사명)는 반드시 입력해야 합니다.")
+            st.error("❌ Case #와 Doctor(의사명)는 필수입니다.")
         else:
             p_u = 180
-            if f_cl:
+            if f_cl and not ref.empty:
                 p_m = ref[ref.iloc[:, 1] == f_cl]
                 if not p_m.empty:
                     try: p_u = int(float(p_m.iloc[0, 3]))
@@ -118,7 +135,7 @@ with t1:
             reset_all()
             st.rerun()
 
-# 정산/검색 (기존 로직 유지)
+# --- 정산/검색 ---
 with t2:
     st.subheader("💰 정산")
     today_dt = date.today()
