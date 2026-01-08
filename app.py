@@ -4,18 +4,29 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정
-st.set_page_config(page_title="Skycad Lab", layout="wide")
-st.markdown("### 🦷 Skycad Lab Night Guard Manager")
+# 1. 페이지 설정 및 제작자 정보 고정
+st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
+
+# 제작자 정보 복구
+st.markdown(
+    """
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1 style="margin: 0;">🦷 Skycad Lab Night Guard Manager</h1>
+        <span style="font-size: 14px; font-weight: bold; color: #555;">Designed By Heechul Jung</span>
+    </div>
+    <hr style="margin-top: 0; margin-bottom: 20px;">
+    """,
+    unsafe_allow_html=True
+)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리
+# 세션 관리 (문자열 결합 방식)
 if "it" not in st.session_state:
     st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
-# [함수] 주말 제외 2일 전 계산
+# [함수] 주말 제외 2일 전 계산 (영업일 기준)
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -23,7 +34,7 @@ def get_shp(d_date):
         if t.weekday() < 5: c += 1
     return t
 
-# 날짜 초기화
+# 날짜 초기값 설정
 if "due" + iter_no not in st.session_state:
     st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
 if "shp" + iter_no not in st.session_state:
@@ -62,18 +73,18 @@ with t1:
     case_no = c1.text_input("Case #", key="c" + iter_no)
     patient = c1.text_input("Patient", key="p" + iter_no)
     
-    # 1. 병원 리스트 준비
+    # 병원 리스트
     clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic (병원)", ["선택"] + clinics + ["➕ 직접"], key="sc" + iter_no)
     
-    # 2. 병원 선택 시 해당 병원의 의사들만 필터링
+    # 병원 선택에 따른 의사 필터링
     filtered_docs = []
     if sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
         filtered_docs = sorted(ref[ref.iloc[:,1] == sel_cl].iloc[:,2].unique().tolist())
     else:
         filtered_docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
 
-    # 3. 의사 선택창 (병원을 먼저 고르면 해당 병원 의사가 첫 번째로 나오게 함)
+    # 의사 선택
     sel_doc = c3.selectbox("Doctor (의사)", ["선택"] + filtered_docs + ["➕ 직접"], key="sd" + iter_no)
     
     f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else sel_cl
@@ -103,7 +114,6 @@ with t1:
         if not case_no or f_doc in ["선택", ""]:
             st.error("❌ Case #와 Doctor는 필수입니다.")
         else:
-            # 병원명 기준 가격 자동 매칭
             p_u = 180
             if f_cl and f_cl != "선택" and not ref.empty:
                 p_m = ref[ref.iloc[:, 1] == f_cl]
@@ -128,7 +138,7 @@ with t1:
             reset_all()
             st.rerun()
 
-# --- 정산/검색 (기존과 동일) ---
+# --- [TAB 2: 정산] ---
 with t2:
     st.subheader("💰 정산")
     today_dt = date.today()
@@ -140,12 +150,14 @@ with t2:
         pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[(pdf['SD'].dt.year == s_y) & (pdf['SD'].dt.month == s_m)]
         if not m_dt.empty:
+            # Case #를 첫 열로, 인덱스 숨김
             cols = ['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
             st.dataframe(m_dt[cols], use_container_width=True, hide_index=True)
             pay = m_dt[m_dt['Status'].str.lower() == 'normal']
             tot = pd.to_numeric(pay['Qty'], errors='coerce').sum()
             st.metric("총 수량", str(int(tot)) + " ea")
 
+# --- [TAB 3: 검색] ---
 with t3:
     st.subheader("🔍 검색")
     q_s = st.text_input("검색어", key="search_box")
