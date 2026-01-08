@@ -43,7 +43,7 @@ def get_data():
         return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
     except: return pd.DataFrame()
 
-# APIError 방지를 위한 Reference 시트 로딩 보강
+# Reference 시트 로딩
 @st.cache_data(ttl=600)
 def get_ref():
     try:
@@ -112,5 +112,54 @@ with t1:
             if f_cl and not ref.empty:
                 p_m = ref[ref.iloc[:, 1] == f_cl]
                 if not p_m.empty:
-                    try: p_u = int(float(p_m.iloc[0, 3]))
-                    except
+                    try: 
+                        p_u = int(float(p_m.iloc[0, 3]))
+                    except: # 💡 여기 콜론(:) 추가 수정완료
+                        p_u = 180
+            
+            dt_fmt = '%Y-%m-%d'
+            new_row = {
+                "Case #": case_no, "Clinic": f_cl if f_cl != "선택" else "",
+                "Doctor": f_doc, "Patient": patient, "Arch": arch, "Material": mat,
+                "Price": p_u, "Qty": qty, "Total": p_u * qty,
+                "Receipt Date": "-" if is_33 else rd.strftime(dt_fmt),
+                "Completed Date": cp.strftime(dt_fmt),
+                "Shipping Date": shp_val.strftime(dt_fmt),
+                "Due Date": due_val.strftime(dt_fmt),
+                "Status": stt, "Notes": ", ".join(chks) + (" | " + memo if memo else "")
+            }
+            conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
+            st.success("✅ 저장 성공!")
+            time.sleep(1)
+            reset_all()
+            st.rerun()
+
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader("💰 정산")
+    today_dt = date.today()
+    sy, sm = st.columns(2)
+    s_y = sy.selectbox("연도", range(today_dt.year, today_dt.year - 5, -1))
+    s_m = sm.selectbox("월", range(1, 13), index=today_dt.month - 1)
+    if not main_df.empty:
+        pdf = main_df.copy()
+        pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
+        m_dt = pdf[(pdf['SD'].dt.year == s_y) & (pdf['SD'].dt.month == s_m)]
+        if not m_dt.empty:
+            # 💡 정산 표 첫 열을 Case #로 설정
+            cols = ['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']
+            st.dataframe(m_dt[cols], use_container_width=True)
+            
+            pay = m_dt[m_dt['Status'].str.lower() == 'normal']
+            tot = pd.to_numeric(pay['Qty'], errors='coerce').sum()
+            st.metric("총 수량", str(int(tot)) + " ea")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    st.subheader("🔍 검색")
+    q_s = st.text_input("검색어", key="search_box")
+    if not main_df.empty:
+        if q_s:
+            f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
+            st.dataframe(f_df, use_container_width=True)
+        else: st.dataframe(main_df.tail(20), use_container_width=True)
