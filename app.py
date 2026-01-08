@@ -19,16 +19,8 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 초기화 로직 (세션 상태 관리)
-if "form_key" not in st.session_state:
-    st.session_state.form_key = 0
-
-def reset_form():
-    st.session_state.form_key += 1
-    st.rerun()
-
-# 3. 데이터 로딩
-@st.cache_data(ttl=10)
+# 2. 데이터 로딩 (캐시 5초로 단축하여 실시간성 확보)
+@st.cache_data(ttl=5)
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
@@ -45,79 +37,87 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # form_key를 이용해 저장 성공 시 모든 위젯을 강제로 새로 그림 (초기화)
-    with st.container():
+    # 💡 폼(Form)으로 전체를 감싸서 입력 중 새로고침을 원천 차단합니다.
+    with st.form("main_input_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case #", key=f"case_{st.session_state.form_key}")
-        patient = c1.text_input("Patient", key=f"pat_{st.session_state.form_key}")
+        case_no = c1.text_input("Case #")
+        patient = c1.text_input("Patient")
         
+        # 클리닉 선택 및 직접 입력 (디자인 효율화를 위해 나란히 배치)
         cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접"], key=f"cl_{st.session_state.form_key}")
-        f_cl_input = c2.text_input("👉 클리닉 이름 입력", key=f"fcl_{st.session_state.form_key}") if sel_cl == "➕ 직접" else ""
+        sel_cl = c2.selectbox("Clinic 선택", ["선택"] + cl_list + ["➕ 직접 입력"])
+        f_cl_input = c2.text_input("👉 직접 입력 시 (여기에 작성)")
         
-        doc_opts = ["선택", "➕ 직접"]
-        if sel_cl not in ["선택", "➕ 직접"]:
+        # 의사 선택 및 직접 입력
+        doc_opts = ["선택", "➕ 직접 입력"]
+        if sel_cl not in ["선택", "➕ 직접 입력"]:
             docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
             doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
-        sel_doc = c3.selectbox("Doctor", doc_opts, key=f"doc_{st.session_state.form_key}")
-        f_doc_input = c3.text_input("👉 의사 이름 입력", key=f"fdoc_{st.session_state.form_key}") if sel_doc == "➕ 직접" else ""
+        sel_doc = c3.selectbox("Doctor 선택", doc_opts)
+        f_doc_input = c3.text_input("👉 직접 입력 시 (여기에 작성)")
 
         st.markdown("---")
+        
         d1, d2, d3 = st.columns(3)
-        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{st.session_state.form_key}")
-        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{st.session_state.form_key}")
-        qty = d1.number_input("Qty", 1, 10, 1, key=f"qty_{st.session_state.form_key}")
+        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
+        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
+        qty = d1.number_input("Qty", 1, 10, 1)
         
-        is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key=f"scan_{st.session_state.form_key}")
-        rd = d2.date_input("접수일", date.today(), disabled=is_33, key=f"rd_{st.session_state.form_key}")
-        cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cp_{st.session_state.form_key}")
+        is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True)
+        rd = d2.date_input("접수일 (스캔 시 무시)", date.today())
+        cp = d2.date_input("완료일", date.today()+timedelta(1))
         
-        # 마감일 기준 출고일 자동 계산 (-2일)
-        due_date = d3.date_input("마감일", date.today() + timedelta(days=7), key=f"due_{st.session_state.form_key}")
-        shp_date = d3.date_input("출고일", due_date - timedelta(days=2), key=f"shp_{st.session_state.form_key}")
-        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"stt_{st.session_state.form_key}")
+        # 날짜 로직: 폼 내부에서는 값이 즉시 계산되지 않으므로 저장 시 계산하여 처리
+        due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
+        shp_date = d3.date_input("출고일 (기본: 마감-2일)", due_date - timedelta(days=2))
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
         chk_raw = ref_df.iloc[:,3:].values.flatten()
-        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"chk_{st.session_state.form_key}")
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{st.session_state.form_key}")
-        memo = st.text_input("메모", key=f"memo_{st.session_state.form_key}")
+        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
+        memo = st.text_input("메모")
 
-        if st.button("🚀 데이터 저장 및 전송", use_container_width=True):
-            final_cl = f_cl_input if sel_cl == "➕ 직접" else sel_cl
-            final_doc = f_doc_input if sel_doc == "➕ 직접" else sel_doc
-            
-            if not case_no or final_cl in ["선택", ""]:
-                st.error("Case #와 Clinic은 필수 입력 항목입니다.")
+        # 저장 버튼
+        submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
+
+    if submit:
+        # 값 최종 확정 로직
+        final_cl = f_cl_input if sel_cl == "➕ 직접 입력" else sel_cl
+        final_doc = f_doc_input if sel_doc == "➕ 직접 입력" else sel_doc
+        
+        if not case_no or final_cl in ["선택", ""]:
+            st.error("Case #와 Clinic은 필수 입력 항목입니다.")
+        else:
+            # 중복 체크
+            duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
+            if not duplicate.empty:
+                st.warning(f"⚠️ 중복 데이터! Case #{case_no}, 환자명 {patient}가 이미 존재합니다.")
             else:
-                duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
-                if not duplicate.empty:
-                    st.warning(f"⚠️ 중복 발견! Case #{case_no}, 환자명 {patient} 데이터가 이미 존재합니다.")
-                else:
-                    with st.spinner("저장 중..."):
-                        p_u = 180
-                        try:
-                            if sel_cl not in ["선택", "➕ 직접"]:
-                                p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
-                        except: p_u = 180
-                        
-                        dfmt = '%Y-%m-%d'
-                        row = {
-                            "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
-                            "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
-                            "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
-                            "Completed Date": cp.strftime(dfmt),
-                            "Shipping Date": shp_date.strftime(dfmt),
-                            "Due Date": due_date.strftime(dfmt),
-                            "Status": stt, "Notes": ", ".join(chks) + " | " + memo
-                        }
-                        st.cache_data.clear()
-                        conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                        st.success("저장 성공! 모든 데이터를 초기화하고 상단으로 이동합니다.")
-                        time.sleep(1)
-                        reset_form() # 여기서 키값을 바꿔서 모든 입력창을 비우고 상단으로 보냄
+                with st.spinner("데이터 저장 중..."):
+                    p_u = 180
+                    try:
+                        if sel_cl not in ["선택", "➕ 직접 입력"]:
+                            p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+                    except: p_u = 180
+                    
+                    dfmt = '%Y-%m-%d'
+                    row = {
+                        "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
+                        "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
+                        "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
+                        "Completed Date": cp.strftime(dfmt),
+                        "Shipping Date": shp_date.strftime(dfmt),
+                        "Due Date": due_date.strftime(dfmt),
+                        "Status": stt, "Notes": ", ".join(chks) + " | " + memo
+                    }
+                    st.cache_data.clear()
+                    conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
+                    st.success("저장 성공! 화면을 초기화합니다.")
+                    time.sleep(1)
+                    st.rerun() # 전체 새로고침으로 데이터 비우고 상단 이동
 
-# --- [TAB 2: 정산] ---
+# --- [TAB 2 / TAB 3 (디자인 동일)] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
@@ -141,7 +141,6 @@ with t2:
             m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
             m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
 
-# --- [TAB 3: 검색] ---
 with t3:
     st.subheader("🔍 전체 데이터 검색")
     qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
