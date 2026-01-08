@@ -19,8 +19,8 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 데이터 로딩 (안정적인 캐시)
-@st.cache_data(ttl=20)
+# 2. 데이터 로딩
+@st.cache_data(ttl=10)
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
@@ -37,21 +37,18 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 직접 입력창이 즉각 나타나도록 폼 외부에서 먼저 선택 (디자인은 유지)
+    # 💡 직접 입력창 노출을 위해 선택 위젯을 상단에 배치
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #")
     patient = c1.text_input("Patient")
     
-    # 클리닉 선택
     cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접"])
     
-    # 💡 "➕ 직접" 선택 시 즉시 입력창 등장 (기존 디자인 유지)
     f_cl_input = ""
     if sel_cl == "➕ 직접":
         f_cl_input = c2.text_input("👉 클리닉 이름 입력")
     
-    # 의사 선택
     doc_opts = ["선택", "➕ 직접"]
     if sel_cl not in ["선택", "➕ 직접"]:
         docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
@@ -62,7 +59,7 @@ with t1:
     if sel_doc == "➕ 직접":
         f_doc_input = c3.text_input("👉 의사 이름 입력")
 
-    # 💡 세부설정부터는 st.form을 사용하여 데이터 보호
+    # 세부 설정 (데이터 보호를 위해 Form 사용)
     with st.form("detail_form", clear_on_submit=True):
         st.markdown("---")
         d1, d2, d3 = st.columns(3)
@@ -80,7 +77,6 @@ with t1:
 
         st.markdown("---")
         
-        # 체크리스트 및 사진 (기존 디자인 유지)
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
@@ -95,7 +91,6 @@ with t1:
         if not case_no or final_cl in ["선택", ""]:
             st.error("Case #와 Clinic은 필수 입력 항목입니다.")
         else:
-            # 중복 체크 (Case # + Patient)
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
             if not duplicate.empty:
                 st.warning(f"⚠️ 중복 데이터 발견! Case #{case_no}, 환자명 {patient} 데이터가 이미 있습니다.")
@@ -119,9 +114,13 @@ with t1:
                     }
                     st.cache_data.clear()
                     conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                    st.success("저장 성공!"); time.sleep(1); st.rerun()
+                    
+                    # 💡 저장 성공 메시지 후 앱 재실행(Rerun)을 통해 입력 데이터 초기화 및 상단 이동
+                    st.success("저장 성공! 화면을 초기화합니다.")
+                    time.sleep(1)
+                    st.rerun()
 
-# --- [TAB 2: 정산] --- (디자인 유지)
+# --- [TAB 2: 정산] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
@@ -145,7 +144,7 @@ with t2:
             m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
             m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
 
-# --- [TAB 3: 검색] --- (디자인 유지)
+# --- [TAB 3: 검색] ---
 with t3:
     st.subheader("🔍 전체 데이터 검색")
     qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
