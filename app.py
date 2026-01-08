@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (절대 유지)
+# 1. 페이지 설정 및 디자인 (절대 고정)
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -46,48 +46,52 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 st.form으로 감싸서 입력 중 새로고침 및 데이터 증발 방지
-    with st.form("input_form", clear_on_submit=True):
-        # [입력 1단] 선택창 밑에 있던 불필요한 입력창 모두 삭제
-        c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case #")
-        patient = c1.text_input("Patient")
-        
-        cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list) # 직접 입력 옵션 삭제
-        
-        doc_opts = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-        sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts) # 직접 입력 옵션 삭제
+    # [입력 1단] 세션 스테이트를 써서 새로고침 시 데이터 보존
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #", key="case_input")
+    patient = c1.text_input("Patient", key="pat_input")
+    
+    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list, key="cl_sel")
+    
+    doc_opts = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts, key="doc_sel")
 
-        st.markdown("---")
-        
-        # [입력 2단] 
-        d1, d2, d3 = st.columns(3)
-        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
-        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
-        qty = d1.number_input("Qty", 1, 10, 1)
-        
-        is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True)
-        rd = d2.date_input("접수일", date.today())
-        cp = d2.date_input("완료일", date.today()+timedelta(1))
-        
-        due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        st.caption("※ 출고일은 마감일 기준 평일 -2일로 자동 저장됩니다.")
-        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
+    st.markdown("---")
+    
+    # [입력 2단: 날짜 및 상세 설정]
+    d1, d2, d3 = st.columns(3)
+    arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key="arch_input")
+    mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key="mat_input")
+    qty = d1.number_input("Qty", 1, 10, 1, key="qty_input")
+    
+    is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key="33_input")
+    rd = d2.date_input("접수일", date.today(), key="rd_input")
+    cp = d2.date_input("완료일", date.today()+timedelta(1), key="cp_input")
+    
+    # 💡 마감일을 바꾸면 즉시 주말 제외 출고일을 계산해서 보여줌
+    due_date = d3.date_input("마감일", date.today() + timedelta(days=7), key="due_input")
+    
+    # 마감일 기준으로 계산된 기본 출고일
+    default_shp = get_shp_date(due_date)
+    
+    # 💡 출고일 입력창: 계산된 날짜가 기본으로 들어가지만, 직접 바꿀 수 있음!
+    shp_date = d3.date_input("출고일 (자동계산됨 / 수정가능)", default_shp, key="shp_input")
+    stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="stt_input")
 
-        st.markdown("---")
-        
-        # [입력 3단]
-        chk_raw = ref_df.iloc[:,3:].values.flatten()
-        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
-        memo = st.text_input("메모")
+    st.markdown("---")
+    
+    # [입력 3단: 디자인 유지]
+    chk_raw = ref_df.iloc[:,3:].values.flatten()
+    chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key="chk_input")
+    up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key="img_input")
+    memo = st.text_input("메모", key="memo_input")
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
-
-    # 🚀 저장 처리 (폼 제출 시에만 실행되므로 에러 없음)
-    if submit:
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # 🚀 저장 버튼
+    if st.button("🚀 데이터 저장 및 전송", use_container_width=True, type="primary"):
+        # 최종 필수값 체크
         if not case_no or sel_cl == "선택":
             st.error("❌ Case #와 Clinic은 필수 입력 항목입니다.")
         else:
@@ -96,16 +100,13 @@ with t1:
                     p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
                 except: p_u = 180
                 
-                # 주말 제외 출고일 자동 계산
-                final_shp_date = get_shp_date(due_date)
-                
                 dfmt = '%Y-%m-%d'
                 row = {
                     "Case #": case_no.strip(), "Clinic": sel_cl, "Doctor": sel_doc, "Patient": patient.strip(),
                     "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                     "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                     "Completed Date": cp.strftime(dfmt),
-                    "Shipping Date": final_shp_date.strftime(dfmt),
+                    "Shipping Date": shp_date.strftime(dfmt), # 계산됐거나 직접 수정한 날짜가 저장됨
                     "Due Date": due_date.strftime(dfmt),
                     "Status": stt, "Notes": ", ".join(chks) + " | " + memo
                 }
@@ -115,7 +116,7 @@ with t1:
                 time.sleep(1)
                 st.rerun()
 
-# --- [정산 / 검색 탭 디자인 고정] ---
+# --- [정산 / 검색 탭 디자인 유지] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
