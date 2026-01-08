@@ -25,7 +25,7 @@ def get_auto_shp_date(due):
     count = 0
     while count < 2:
         target -= timedelta(days=1)
-        if target.weekday() < 5: # 0:월 ~ 4:금
+        if target.weekday() < 5: # 월(0)~금(4)만 카운트
             count += 1
     return target
 
@@ -46,9 +46,9 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 st.form으로 감싸서 입력 중 새로고침 및 데이터 증발 방지
-    with st.form("stable_input_form", clear_on_submit=True):
-        # [입력 1단]
+    # 💡 [중요] st.form을 사용하여 입력 도중 새로고침과 에러 메시지 발생을 원천 차단합니다.
+    with st.form("input_form", clear_on_submit=True):
+        # [1단 배열]
         c1, c2, c3 = st.columns(3)
         case_no = c1.text_input("Case # (필수)")
         patient = c1.text_input("Patient")
@@ -61,7 +61,7 @@ with t1:
 
         st.markdown("---")
         
-        # [입력 2단]
+        # [2단 배열]
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
@@ -72,33 +72,33 @@ with t1:
         cp = d2.date_input("완료일", date.today()+timedelta(1))
         
         due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        # 💡 비워두면 자동 -2일(평일기준) 계산, 입력하면 그 날짜로 저장됩니다.
-        shp_manual = d3.date_input("출고일 수동 수정 (필요 시 선택)", value=None)
+        # 💡 출고일: 비워두면 자동 -2일(평일기준) 계산, 직접 고르면 그 날짜로 저장됩니다.
+        shp_manual = d3.date_input("출고일 직접 수정 (필요할 때만 선택)", value=None)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
         
-        # [입력 3단]
+        # [3단 배열]
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
         memo = st.text_input("메모")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        # 🚀 폼 제출 버튼
+        # 🚀 폼 전송 버튼 (이걸 누를 때만 딱 한 번 검사합니다)
         submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
 
-    # 저장 로직: 버튼을 누르는 순간에만 "단 한 번" 검사하고 실행됩니다.
+    # 저장 로직 (버튼 클릭 시에만 실행)
     if submit:
         if not case_no or sel_cl == "선택":
-            st.error("❌ Case #와 Clinic은 필수 입력 항목입니다.")
+            st.error("❌ Case #와 Clinic은 필수 입력 항목입니다. 확인 후 다시 눌러주세요.")
         else:
             with st.spinner("저장 중..."):
                 try:
                     p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
                 except: p_u = 180
                 
-                # 출고일 결정: 수동 입력 없으면 주말제외 -2일 자동계산
+                # 출고일 결정: 직접 수정한 게 있으면 그 값, 없으면 자동 -2일 계산
                 final_shp = shp_manual if shp_manual is not None else get_auto_shp_date(due_date)
                 
                 dfmt = '%Y-%m-%d'
@@ -113,14 +113,14 @@ with t1:
                 }
                 st.cache_data.clear()
                 conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                st.success("✅ 저장 성공! 페이지를 초기화합니다.")
+                st.success("✅ 저장 성공! 목록을 새로고침합니다.")
                 time.sleep(1)
                 st.rerun()
 
-# --- [정산/검색 탭 디자인 유지] ---
+# --- [정산/검색 탭 동일 유지] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
-    # ... (기존 로직 동일)
+    # (기존 정산 코드와 동일)
 with t3:
     st.subheader("🔍 전체 데이터 검색")
-    # ... (기존 로직 동일)
+    # (기존 검색 코드와 동일)
