@@ -59,7 +59,6 @@ def get_d():
     except: return pd.DataFrame()
 
 m_df = get_d()
-# Reference 시트 로드 (Clinic별 Doctor 리스트용)
 ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 
 t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
@@ -76,10 +75,9 @@ with t1:
     sel_cl = c2.selectbox("Clinic (병원명)", ["선택"] + cl_list + ["➕ 직접"], key=f"cl{i}")
     f_cl = c2.text_input("직접 입력 (Clinic)", key=f"fcl{i}") if sel_cl=="➕ 직접" else sel_cl
     
-    # 💡 [핵심: 의사 필터링 로직]
+    # 💡 [의사 필터링 로직]
     doc_opts = ["선택", "➕ 직접"]
     if sel_cl not in ["선택", "➕ 직접"]:
-        # 선택된 Clinic에 해당하는 Doctor들만 가져오기 (Reference 시트 2번째 열 기준)
         filtered_docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
         doc_opts += sorted([d for d in filtered_docs if d and str(d)!='nan'])
     
@@ -98,7 +96,6 @@ with t1:
         
         has_d = d2.checkbox("마감일/출고일 지정", True, key=f"h_d{i}")
         if has_d:
-            # 마감일 변경 시 sync_dates 함수가 호출되어 출고일을 즉시 바꿈
             due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
             shp = d3.date_input("출고일 (자동계산됨)", key=f"shp{i}")
             s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
@@ -132,7 +129,6 @@ with t1:
                 "Due Date": (due.strftime(dfmt) if due else "-"),
                 "Status": stt, "Notes": notes_str
             }
-            
             st.cache_data.clear()
             conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
             st.success("✅ 저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
@@ -141,9 +137,9 @@ with t1:
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
-    c1, c2 = st.columns(2)
-    sel_year = c1.selectbox("연도", range(today.year, today.year - 5, -1))
-    sel_month = c2.selectbox("월", range(1, 13), index=today.month - 1)
+    sy, sm = st.columns(2)
+    sel_year = sy.selectbox("연도", range(today.year, today.year - 5, -1))
+    sel_month = sm.selectbox("월", range(1, 13), index=today.month - 1)
     
     if not m_df.empty:
         pdf = m_df.copy()
@@ -151,10 +147,27 @@ with t2:
         m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
         if not m_dt.empty:
             v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            v_df.index = m_dt['Case #']; v_df.index.name = "Case #"
             st.dataframe(v_df, use_container_width=True)
             pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
             total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
             extra_qty = max(0, total_qty - 320)
+            
             m1, m2, m3 = st.columns(3)
-            m1.metric(f
+            # 💡 아래 라인의 괄호를 확실히 닫았습니다.
+            m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
+            m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
+            m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
+        else: st.info("해당 기간의 데이터가 없습니다.")
+
+# --- [TAB 3: 검색] ---
+with t3:
+    st.subheader("🔍 전체 데이터 검색")
+    qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
+    if not m_df.empty:
+        if qs:
+            f_df = m_df[m_df['Case #'].str.contains(qs, case=False, na=False) | 
+                        m_df['Patient'].str.contains(qs, case=False, na=False)]
+            st.dataframe(f_df, use_container_width=True)
+        else:
+            st.write("📋 최근 등록 데이터 (20건)")
+            st.dataframe(m_df.tail(20), use_container_width=True)
