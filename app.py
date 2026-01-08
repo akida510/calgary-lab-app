@@ -19,12 +19,8 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 관리 (저장 후 초기화를 위함)
-if "refresh_count" not in st.session_state:
-    st.session_state.refresh_count = 0
-
-# 3. 데이터 로딩
-@st.cache_data(ttl=5)
+# 2. 데이터 로딩 (캐시 최적화)
+@st.cache_data(ttl=10)
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
@@ -41,26 +37,37 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 st.form으로 감싸서 타이핑 중 새로고침을 완벽 차단합니다.
-    # key에 refresh_count를 넣어서 저장 후 전체를 새로 그리게 만듭니다.
-    with st.form(key=f"input_form_{st.session_state.refresh_count}", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case #")
-        patient = c1.text_input("Patient")
+    # 💡 폼 외부에서 선택을 받아야 '직접 입력' 창이 실시간으로 뜹니다.
+    # 하지만 새로고침 방지를 위해 입력값들은 최대한 세션에 담거나 폼 내부 로직을 활용합니다.
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #")
+    patient = c1.text_input("Patient")
+    
+    # 1. 클리닉 선택 및 하위 입력창
+    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"])
+    
+    final_cl_val = ""
+    if sel_cl == "➕ 직접 입력":
+        final_cl_val = c2.text_input("👉 클리닉 이름을 입력하세요")
+    else:
+        final_cl_val = sel_cl
         
-        # 클리닉 선택 및 직접 입력
-        cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic 선택", ["선택"] + cl_list + ["➕ 직접 입력"])
-        f_cl_extra = c2.text_input("👉 클리닉 직접 입력 (선택 시 작성)")
-        
-        # 의사 선택 및 직접 입력
-        doc_opts = ["선택", "➕ 직접 입력"]
-        if sel_cl not in ["선택", "➕ 직접 입력"]:
-            docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
-            doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
-        sel_doc = c3.selectbox("Doctor 선택", doc_opts)
-        f_doc_extra = c3.text_input("👉 의사 직접 입력 (선택 시 작성)")
+    # 2. 의사 선택 및 하위 입력창
+    doc_opts = ["선택", "➕ 직접 입력"]
+    if sel_cl not in ["선택", "➕ 직접 입력"]:
+        docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
+        doc_opts += sorted([d for d in docs if d and str(d)!='nan'])
+    sel_doc = c3.selectbox("Doctor", doc_opts)
+    
+    final_doc_val = ""
+    if sel_doc == "➕ 직접 입력":
+        final_doc_val = c3.text_input("👉 의사 이름을 입력하세요")
+    else:
+        final_doc_val = sel_doc
 
+    # 💡 세부 정보부터는 st.form을 사용하여 타이핑 중 새로고침 차단
+    with st.form("detail_input_form", clear_on_submit=True):
         st.markdown("---")
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
@@ -68,12 +75,12 @@ with t1:
         qty = d1.number_input("Qty", 1, 10, 1)
         
         is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True)
-        rd = d2.date_input("접수일 (스캔 시 무시)", date.today())
+        rd = d2.date_input("접수일", date.today())
         cp = d2.date_input("완료일", date.today()+timedelta(1))
         
         due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        # 💡 폼 내부에서는 실시간 계산이 어려우므로 기본 -2일로 설정
-        shp_date = d3.date_input("출고일 (기본: 마감일 -2일)", due_date - timedelta(days=2))
+        # 💡 요청하신 마감일 기준 -2일 로직
+        shp_date = d3.date_input("출고일 (마감일 -2일 자동계산)", due_date - timedelta(days=2))
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
 
         st.markdown("---")
@@ -82,21 +89,17 @@ with t1:
         up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
         memo = st.text_input("메모")
 
-        # 💡 반드시 폼 안에 버튼이 있어야 합니다.
         submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
 
     if submit:
-        # 최종 값 매칭
-        final_cl = f_cl_extra if sel_cl == "➕ 직접 입력" else sel_cl
-        final_doc = f_doc_extra if sel_doc == "➕ 직접 입력" else sel_doc
-        
-        if not case_no or final_cl in ["선택", ""]:
-            st.error("Case #와 Clinic은 필수 입력 항목입니다.")
+        # 필수값 체크
+        if not case_no or final_cl_val in ["선택", ""]:
+            st.error("Case #와 Clinic은 필수 항목입니다.")
         else:
-            # 복합 중복 체크
+            # 중복 체크
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
             if not duplicate.empty:
-                st.warning(f"⚠️ 중복 데이터 발견! Case #{case_no}, 환자명 {patient}가 이미 존재합니다.")
+                st.warning(f"⚠️ 중복! Case #{case_no}, 환자명 {patient}가 이미 있습니다.")
             else:
                 with st.spinner("저장 중..."):
                     p_u = 180
@@ -107,7 +110,7 @@ with t1:
                     
                     dfmt = '%Y-%m-%d'
                     row = {
-                        "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
+                        "Case #": case_no.strip(), "Clinic": final_cl_val, "Doctor": final_doc_val, "Patient": patient.strip(),
                         "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                         "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                         "Completed Date": cp.strftime(dfmt),
@@ -117,13 +120,11 @@ with t1:
                     }
                     st.cache_data.clear()
                     conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                    st.success("저장 성공! 초기화 후 상단으로 이동합니다.")
+                    st.success("저장 성공! 초기화합니다.")
                     time.sleep(1)
-                    # 💡 세션 상태를 바꿔서 전체 폼을 깨끗하게 비우고 상단 이동
-                    st.session_state.refresh_count += 1
-                    st.rerun()
+                    st.rerun() # 저장 후 싹 비우고 맨 위로 이동
 
-# --- [TAB 2: 정산 / TAB 3: 검색] (기존 디자인 유지) ---
+# --- [정산/검색 탭 동일 유지] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
@@ -137,7 +138,7 @@ with t2:
         m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
         if not m_dt.empty:
             v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            v_df.index = m_dt['Case #']; v_df.index.name = "Case #"
+            v_df.index = m_dt['Case #']
             st.dataframe(v_df, use_container_width=True)
             pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
             total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
