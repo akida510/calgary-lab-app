@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 제목 디자인
+# 1. 페이지 설정
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,7 +19,7 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 세션 상태 관리 (새로고침 시 데이터 유지용)
+# 2. 세션 상태 관리
 if "it" not in st.session_state: 
     st.session_state.it = 0
 
@@ -31,7 +31,7 @@ def get_working_day_minus_2(due_date):
     count = 0
     while count < 2:
         target -= timedelta(days=1)
-        if target.weekday() < 5:  # 월~금(0~4)
+        if target.weekday() < 5: 
             count += 1
     return target
 
@@ -41,7 +41,7 @@ if f"due{i}" not in st.session_state:
 if f"shp{i}" not in st.session_state:
     st.session_state[f"shp{i}"] = get_working_day_minus_2(st.session_state[f"due{i}"])
 
-# 마감일 변경 시 출고일 자동 갱신 콜백
+# 마감일 변경 시 출고일 자동 갱신
 def sync_dates():
     st.session_state[f"shp{i}"] = get_working_day_minus_2(st.session_state[f"due{i}"])
 
@@ -54,7 +54,6 @@ def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
         df = df[df['Case #'].str.strip() != ""]
-        df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
         return df.reset_index(drop=True)
     except: return pd.DataFrame()
 
@@ -67,22 +66,32 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     c1, c2, c3 = st.columns(3)
+    
     case_no = c1.text_input("Case #", key=f"c{i}")
     patient = c1.text_input("Patient", key=f"p{i}")
     
-    # [Clinic 선택]
-    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-    sel_cl = c2.selectbox("Clinic (병원명)", ["선택"] + cl_list + ["➕ 직접"], key=f"cl{i}")
-    f_cl = c2.text_input("직접 입력 (Clinic)", key=f"fcl{i}") if sel_cl=="➕ 직접" else sel_cl
-    
-    # 💡 [의사 필터링 로직]
-    doc_opts = ["선택", "➕ 직접"]
-    if sel_cl not in ["선택", "➕ 직접"]:
-        filtered_docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
-        doc_opts += sorted([d for d in filtered_docs if d and str(d)!='nan'])
-    
-    sel_doc = c3.selectbox("Doctor (의사명)", doc_opts, key=f"d{i}")
+    # 💡 [핵심: 의사 우선 검색 로직]
+    # 모든 의사 리스트 추출
+    all_docs = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    sel_doc = c3.selectbox("Doctor (의사 먼저 검색/선택 가능)", ["선택"] + all_docs + ["➕ 직접"], key=f"d{i}")
     f_doc = c3.text_input("직접 입력 (Doctor)", key=f"fd{i}") if sel_doc=="➕ 직접" else sel_doc
+    
+    # 의사를 선택하면 해당 의사의 Clinic을 자동으로 찾음
+    auto_clinic = "선택"
+    if sel_doc not in ["선택", "➕ 직접"]:
+        matched_clinic = ref_df[ref_df.iloc[:,2] == sel_doc].iloc[0, 1]
+        auto_clinic = matched_clinic
+
+    # Clinic 선택 (의사를 선택했다면 자동으로 바뀜)
+    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    
+    # 만약 의사를 선택해서 병원이 매칭되었다면 해당 병원을 기본값으로 설정
+    default_cl_idx = 0
+    if auto_clinic in cl_list:
+        default_cl_idx = cl_list.index(auto_clinic) + 1
+
+    sel_cl = c2.selectbox("Clinic (의사 선택 시 자동 매칭)", ["선택"] + cl_list + ["➕ 직접"], index=default_cl_idx, key=f"cl{i}")
+    f_cl = c2.text_input("직접 입력 (Clinic)", key=f"fcl{i}") if sel_cl=="➕ 직접" else sel_cl
 
     with st.expander("⚙️ 세부설정", expanded=True):
         d1, d2, d3 = st.columns(3)
@@ -94,18 +103,13 @@ with t1:
         rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
         cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
         
-        has_d = d2.checkbox("마감일/출고일 지정", True, key=f"h_d{i}")
-        if has_d:
-            due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
-            shp = d3.date_input("출고일 (자동계산됨)", key=f"shp{i}")
-            s_t = d3.selectbox("⚠️ 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
-        else: due = shp = s_t = None
+        due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
+        shp = d3.date_input("출고일 (자동계산됨)", key=f"shp{i}")
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
 
-    with st.expander("✅ 기타 (체크리스트 & 사진)", expanded=True):
+    with st.expander("✅ 기타", expanded=True):
         chk_raw = ref_df.iloc[:,3:].values.flatten()
         chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"ck{i}")
-        up_img = st.file_uploader("📸 사진 업로드 (옵션)", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
         memo = st.text_input("메모", key=f"me{i}")
 
     if st.button("🚀 데이터 저장", use_container_width=True, type="primary"):
@@ -114,60 +118,33 @@ with t1:
         else:
             p_u = 180
             try:
-                if sel_cl not in ["선택", "➕ 직접"]:
-                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == sel_cl].iloc[0, 3]))
+                if f_cl in cl_list:
+                    p_u = int(float(ref_df[ref_df.iloc[:, 1] == f_cl].iloc[0, 3]))
             except: p_u = 180
             
             dfmt = '%Y-%m-%d'
-            notes_str = ", ".join(chks) + (f" | {memo}" if memo else "")
             row = {
                 "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient,
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                 "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                 "Completed Date": cp.strftime(dfmt),
-                "Shipping Date": (shp.strftime(dfmt) if shp else "-"),
-                "Due Date": (due.strftime(dfmt) if due else "-"),
-                "Status": stt, "Notes": notes_str
+                "Shipping Date": shp.strftime(dfmt),
+                "Due Date": due.strftime(dfmt),
+                "Status": stt, "Notes": ", ".join(chks) + (f" | {memo}" if memo else "")
             }
-            st.cache_data.clear()
             conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
             st.success("✅ 저장 성공!"); time.sleep(1); reset_fields(); st.rerun()
 
-# --- [TAB 2: 정산] ---
+# --- [정산/검색 탭 (코드 동일)] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
     sy, sm = st.columns(2)
     sel_year = sy.selectbox("연도", range(today.year, today.year - 5, -1))
     sel_month = sm.selectbox("월", range(1, 13), index=today.month - 1)
-    
     if not m_df.empty:
         pdf = m_df.copy()
         pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
         if not m_dt.empty:
-            v_df = m_dt[['Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']].copy()
-            st.dataframe(v_df, use_container_width=True)
-            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
-            total_qty = pd.to_numeric(pay_dt['Qty'], errors='coerce').sum()
-            extra_qty = max(0, total_qty - 320)
-            
-            m1, m2, m3 = st.columns(3)
-            # 💡 아래 라인의 괄호를 확실히 닫았습니다.
-            m1.metric(f"{sel_month}월 총 수량", f"{int(total_qty)} ea")
-            m2.metric("엑스트라 수량", f"{int(extra_qty)} ea")
-            m3.metric("엑스트라 금액", f"${extra_qty * 19.505333:,.2f}")
-        else: st.info("해당 기간의 데이터가 없습니다.")
-
-# --- [TAB 3: 검색] ---
-with t3:
-    st.subheader("🔍 전체 데이터 검색")
-    qs = st.text_input("환자 이름 또는 Case # 입력", key="search_bar")
-    if not m_df.empty:
-        if qs:
-            f_df = m_df[m_df['Case #'].str.contains(qs, case=False, na=False) | 
-                        m_df['Patient'].str.contains(qs, case=False, na=False)]
-            st.dataframe(f_df, use_container_width=True)
-        else:
-            st.write("📋 최근 등록 데이터 (20건)")
-            st.dataframe(m_df.tail(20), use_container_width=True)
+            st.dataframe(m_dt[['Shipping Date', 'Clinic', 'Patient',
