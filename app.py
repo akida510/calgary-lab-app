@@ -19,16 +19,15 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 💡 [함수] 주말을 제외하고 영업일 기준 2일 전 계산
-def get_business_days_back(end_date, days_back=2):
-    current_date = end_date
+# 💡 [함수] 주말(토,일) 제외 영업일 기준 2일 전 계산
+def get_shp_date(due):
+    target = due
     count = 0
-    while count < days_back:
-        current_date -= timedelta(days=1)
-        # 0:월, 1:화, 2:수, 3:목, 4:금, 5:토, 6:일
-        if current_date.weekday() < 5:  # 월~금요일인 경우만 카운트
+    while count < 2:
+        target -= timedelta(days=1)
+        if target.weekday() < 5: # 0~4 가 월~금
             count += 1
-    return current_date
+    return target
 
 # 2. 초기화 및 세션 관리
 if "reset_ver" not in st.session_state:
@@ -62,18 +61,18 @@ with t1:
     sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"], key=f"cl_sel_{v}")
     f_cl_input = c2.text_input("👉 클리닉 이름 직접 입력", key=f"cl_custom_{v}") if sel_cl == "➕ 직접 입력" else ""
     
+    # 의사 선택 (전체 의사 목록 지원)
     all_docs = ref_df.iloc[:,2].unique()
     doc_opts = sorted([d for d in all_docs if d and str(d)!='nan' and d!='Doctor'])
     if sel_cl not in ["선택", "➕ 직접 입력"]:
         docs = ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique()
         doc_opts = sorted([d for d in docs if d and str(d)!='nan'])
-        
     sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"], key=f"doc_sel_{v}")
     f_doc_input = c3.text_input("👉 의사 이름 직접 입력", key=f"doc_custom_{v}") if sel_doc == "➕ 직접 입력" else ""
 
     st.markdown("---")
     
-    # [입력 2단: 상세 설정 및 주말 제외 날짜 자동계산]
+    # [입력 2단: 상세 설정 및 실시간 날짜 로직]
     d1, d2, d3 = st.columns(3)
     arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{v}")
     mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{v}")
@@ -83,22 +82,23 @@ with t1:
     rd = d2.date_input("접수일", date.today(), key=f"rd_{v}")
     cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cp_{v}")
     
-    # 💡 [날짜 핵심] 마감일 선택 시 주말 제외 2일 전 자동 계산
+    # 💡 [날짜 핵심] 마감일 선언 후 즉시 출고일 계산하여 기본값으로 주입
     due_date = d3.date_input("마감일", date.today() + timedelta(days=7), key=f"due_{v}")
-    auto_shp_date = get_business_days_back(due_date, 2)
-    shp_date = d3.date_input("출고일 (영업일 기준 -2일)", auto_shp_date, key=f"shp_{v}")
+    calculated_shp = get_shp_date(due_date) # 주말 제외 함수 호출
+    shp_date = d3.date_input("출고일 (영업일 기준 -2일)", calculated_shp, key=f"shp_{v}")
     
     stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"stt_{v}")
 
     st.markdown("---")
     
-    # [입력 3단: 디자인 유지]
+    # [입력 3단: 디자인 유지 - 사진 업로드 및 체크리스트]
     chk_raw = ref_df.iloc[:,3:].values.flatten()
     chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"chk_{v}")
     up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{v}")
     memo = st.text_input("메모", key=f"memo_{v}")
 
     st.markdown("<br>", unsafe_allow_html=True)
+    # [저장 버튼 및 필수입력 체크]
     if st.button("🚀 데이터 저장 및 전송", use_container_width=True, type="primary"):
         final_cl = f_cl_input if sel_cl == "➕ 직접 입력" else sel_cl
         final_doc = f_doc_input if sel_doc == "➕ 직접 입력" else sel_doc
@@ -108,7 +108,7 @@ with t1:
         else:
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
             if not duplicate.empty:
-                st.warning(f"⚠️ 중복! Case #{case_no}, 환자명 {patient} 데이터가 이미 존재합니다.")
+                st.warning(f"⚠️ 중복! Case #{case_no}, 환자명 {patient}가 이미 존재합니다.")
             else:
                 with st.spinner("저장 중..."):
                     try:
@@ -127,7 +127,7 @@ with t1:
                     }
                     st.cache_data.clear()
                     conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                    st.success("저장 성공! 초기화합니다.")
+                    st.success("✅ 저장 성공! 화면을 초기화합니다.")
                     time.sleep(1.2)
                     st.session_state.reset_ver += 1
                     st.rerun()
