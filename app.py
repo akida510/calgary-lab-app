@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (희철님 요청 디자인 100% 유지)
+# 1. 페이지 설정 및 디자인 (절대 유지)
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown(
@@ -19,8 +19,12 @@ st.markdown(
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. 데이터 로딩
-@st.cache_data(ttl=10)
+# 2. 세션 상태 초기화 (입력 데이터 관리용)
+if "reset_key" not in st.session_state:
+    st.session_state.reset_key = 0
+
+# 3. 데이터 로딩
+@st.cache_data(ttl=5)
 def get_d():
     try:
         df = conn.read(ttl=0).astype(str)
@@ -37,84 +41,94 @@ t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 with t1:
     st.subheader("📋 입력")
     
-    # 💡 폼으로 감싸서 입력 중 새로고침을 원천 차단 (디자인 유지)
-    with st.form("complete_entry_form", clear_on_submit=True):
-        c1, c2, c3 = st.columns(3)
-        case_no = c1.text_input("Case #")
-        patient = c1.text_input("Patient")
+    # 💡 reset_key를 이용해 저장 후 전체를 깨끗하게 비움
+    k = st.session_state.reset_key
+    
+    # [입력 1단]
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #", key=f"case_{k}")
+    patient = c1.text_input("Patient", key=f"pat_{k}")
+    
+    cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"], key=f"cl_sel_{k}")
+    
+    # 💡 하위 선택 시에만 입력창 등장
+    f_cl_val = ""
+    if sel_cl == "➕ 직접 입력":
+        f_cl_val = c2.text_input("👉 클리닉 이름 입력", key=f"cl_custom_{k}")
+    else:
+        f_cl_val = sel_cl
         
-        # 클리닉 및 의사 선택 (하위 입력창은 폼 특성상 나란히 배치하여 디자인 유지)
-        cl_list = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
-        sel_cl = c2.selectbox("Clinic", ["선택"] + cl_list + ["➕ 직접 입력"])
-        f_cl_extra = c2.text_input("👉 직접 입력 시 작성 (클리닉)")
-        
-        all_docs = ref_df.iloc[:,2].unique()
-        doc_opts = sorted([d for d in all_docs if d and str(d)!='nan' and d!='Doctor'])
-        sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"])
-        f_doc_extra = c3.text_input("👉 직접 입력 시 작성 (의사)")
+    # 의사 선택 (통합 검색 및 필터링)
+    doc_opts = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    if sel_cl not in ["선택", "➕ 직접 입력"]:
+        doc_opts = sorted([d for d in ref_df[ref_df.iloc[:,1] == sel_cl].iloc[:,2].unique() if d and str(d)!='nan'])
+    
+    sel_doc = c3.selectbox("Doctor", ["선택"] + doc_opts + ["➕ 직접 입력"], key=f"doc_sel_{k}")
+    f_doc_val = ""
+    if sel_doc == "➕ 직접 입력":
+        f_doc_val = c3.text_input("👉 의사 이름 입력", key=f"doc_custom_{k}")
+    else:
+        f_doc_val = sel_doc
 
-        st.markdown("---")
-        d1, d2, d3 = st.columns(3)
-        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True)
-        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"])
-        qty = d1.number_input("Qty", 1, 10, 1)
-        
-        is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True)
-        rd = d2.date_input("접수일", date.today())
-        cp = d2.date_input("완료일", date.today()+timedelta(1))
-        
-        due_date = d3.date_input("마감일", date.today() + timedelta(days=7))
-        # 💡 출고일 입력창은 유지하되 설명에 (마감일-2일 자동저장) 명시
-        shp_date_manual = d3.date_input("출고일 (미입력 시 마감일-2일 자동)", due_date - timedelta(days=2))
-        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"])
+    st.markdown("---")
+    
+    # [입력 2단: 상세 설정 및 실시간 날짜 계산]
+    d1, d2, d3 = st.columns(3)
+    arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"arch_{k}")
+    mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"mat_{k}")
+    qty = d1.number_input("Qty", 1, 10, 1, key=f"qty_{k}")
+    
+    is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key=f"is33_{k}")
+    rd = d2.date_input("접수일", date.today(), key=f"rd_{k}")
+    cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cp_{k}")
+    
+    # 💡 마감일 변경 시 출고일 자동 갱신 (-2일)
+    due_date = d3.date_input("마감일", date.today() + timedelta(days=7), key=f"due_{k}")
+    shp_date = d3.date_input("출고일 (마감일 -2일 자동)", due_date - timedelta(days=2), key=f"shp_{k}")
+    stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"stt_{k}")
 
-        st.markdown("---")
-        # 📸 사진 업로드 창 및 체크리스트 (희철님 디자인 복구)
-        chk_raw = ref_df.iloc[:,3:].values.flatten()
-        chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))))
-        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'])
-        memo = st.text_input("메모")
+    st.markdown("---")
+    
+    # [입력 3단: 체크리스트 및 사진 업로드 (복구 완료)]
+    chk_raw = ref_df.iloc[:,3:].values.flatten()
+    chks = st.multiselect("체크리스트", sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan']))), key=f"chk_{k}")
+    up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img_{k}")
+    memo = st.text_input("메모", key=f"memo_{k}")
 
-        # 저장 버튼
-        submit = st.form_submit_button("🚀 데이터 저장 및 전송", use_container_width=True)
-
-    if submit:
-        # 값 확정 로직
-        final_cl = f_cl_extra if sel_cl == "➕ 직접 입력" else sel_cl
-        final_doc = f_doc_extra if sel_doc == "➕ 직접 입력" else sel_doc
-        # 출고일 자동 계산 적용
-        final_shp_date = due_date - timedelta(days=2)
-        
-        if not case_no or final_cl in ["선택", ""]:
-            st.error("Case #와 Clinic은 필수 항목입니다.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🚀 데이터 저장 및 전송", use_container_width=True, type="primary"):
+        if not case_no or f_cl_val in ["선택", ""]:
+            st.error("❌ Case #와 Clinic은 필수 입력 항목입니다.")
         else:
             duplicate = m_df[(m_df['Case #'] == case_no.strip()) & (m_df['Patient'] == patient.strip())]
             if not duplicate.empty:
-                st.warning(f"⚠️ 중복! Case #{case_no}, 환자명 {patient}가 이미 있습니다.")
+                st.warning(f"⚠️ 중복 데이터! Case #{case_no}, 환자명 {patient}가 이미 존재합니다.")
             else:
                 with st.spinner("저장 중..."):
                     p_u = 180
                     try:
-                        p_u = int(float(ref_df[ref_df.iloc[:, 1] == final_cl].iloc[0, 3]))
+                        p_u = int(float(ref_df[ref_df.iloc[:, 1] == f_cl_val].iloc[0, 3]))
                     except: p_u = 180
                     
                     dfmt = '%Y-%m-%d'
                     row = {
-                        "Case #": case_no.strip(), "Clinic": final_cl, "Doctor": final_doc, "Patient": patient.strip(),
+                        "Case #": case_no.strip(), "Clinic": f_cl_val, "Doctor": f_doc_val, "Patient": patient.strip(),
                         "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
                         "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
                         "Completed Date": cp.strftime(dfmt),
-                        "Shipping Date": final_shp_date.strftime(dfmt), # 마감일 -2일 반영
+                        "Shipping Date": shp_date.strftime(dfmt),
                         "Due Date": due_date.strftime(dfmt),
                         "Status": stt, "Notes": ", ".join(chks) + " | " + memo
                     }
                     st.cache_data.clear()
                     conn.update(data=pd.concat([m_df, pd.DataFrame([row])], ignore_index=True))
-                    st.success("저장 성공! 초기화합니다.")
-                    time.sleep(1)
-                    st.rerun() # 데이터 비우고 상단 이동
+                    st.success("✅ 저장 성공! 초기화합니다.")
+                    time.sleep(1.2)
+                    st.session_state.reset_key += 1 # 키 값을 바꿔서 모든 위젯 초기화
+                    st.rerun()
 
-# --- [TAB 2 / TAB 3 디자인 유지] ---
+# --- [정산/검색 탭 디자인 유지] ---
 with t2:
     st.subheader("💰 기간별 정산 내역")
     today = date.today()
