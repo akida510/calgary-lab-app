@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 유지 (절대 유지)
+# 1. 페이지 설정 및 디자인 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -24,7 +24,7 @@ st.markdown("---")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리
+# 세션 관리용 it 카운터
 if "it" not in st.session_state:
     st.session_state.it = 0
 iter_no = str(st.session_state.it)
@@ -37,13 +37,13 @@ def get_shp(d_date):
         if t.weekday() < 5: c += 1
     return t
 
-# 날짜 동기화
-def sync_date():
-    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
-
+# 날짜 초기화 및 동기화
 if "due" + iter_no not in st.session_state:
     st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
 if "shp" + iter_no not in st.session_state:
+    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
+
+def sync_date():
     st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
 def reset_all():
@@ -67,43 +67,49 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
+# 💡 [핵심] 의사 선택 시 병원 값을 세션에 강제로 꽂아넣는 콜백 함수
+def update_clinic_from_doctor():
+    selected_doctor = st.session_state["sd" + iter_no]
+    if selected_doctor not in ["선택", "➕ 직접"] and not ref.empty:
+        match = ref[ref.iloc[:, 2] == selected_doctor]
+        if not match.empty:
+            matched_clinic = match.iloc[0, 1]
+            # 병원 selectbox의 key 값을 강제로 업데이트
+            st.session_state["sc_box" + iter_no] = matched_clinic
+
 t1, t2, t3 = st.tabs(["📝 Case Registration", "💰 Statistics", "🔍 Search"])
 
-# --- [TAB 1: 등록] ---
 with t1:
     st.subheader("📋 입력 정보")
     
-    # 레퍼런스 데이터 정리
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     
-    # 💡 [핵심수정] 의사 선택을 먼저 배치하여 아래 병원 창이 참조할 수 있게 함
-    top_c1, top_c2 = st.columns([0.66, 0.33])
-    with top_c2:
-        sel_doc = st.selectbox("Doctor", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no)
-        f_doc = st.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #", key="c" + iter_no)
+    patient = c1.text_input("Patient", key="p" + iter_no)
+    
+    # 💡 의사 선택창: 콜백 함수(on_change) 연결
+    sel_doc = c3.selectbox(
+        "Doctor", 
+        ["선택"] + docs_list + ["➕ 직접"], 
+        key="sd" + iter_no, 
+        on_change=update_clinic_from_doctor
+    )
+    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
 
-    # 매칭 로직 (의사 선택 즉시 실행)
-    cl_idx = 0
-    matched_cl_name = ""
-    if sel_doc not in ["선택", "➕ 직접"]:
-        match_row = ref[ref.iloc[:, 2] == sel_doc]
-        if not match_row.empty:
-            matched_cl_name = match_row.iloc[0, 1]
-            if matched_cl_name in clinics_list:
-                cl_idx = clinics_list.index(matched_cl_name) + 1
-
-    # 나머지 입력 칸 배치
-    with top_c1:
-        c1_sub, c2_sub = st.columns(2)
-        case_no = c1_sub.text_input("Case #", key="c" + iter_no)
-        patient = c1_sub.text_input("Patient", key="p" + iter_no)
+    # 💡 병원 선택창: 세션 상태에 따라 값이 변함
+    # 초기값이 없을 경우를 대비해 세션 상태 확인
+    if "sc_box" + iter_no not in st.session_state:
+        st.session_state["sc_box" + iter_no] = "선택"
         
-        # 병원 선택 (의사에 의해 cl_idx가 결정됨)
-        sel_cl = c2_sub.selectbox("Clinic", ["선택"] + clinics_list + ["➕ 직접"], index=cl_idx, key="sc_box" + iter_no)
-        f_cl = c2_sub.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else matched_cl_name)
+    sel_cl = c2.selectbox(
+        "Clinic", 
+        ["선택"] + clinics_list + ["➕ 직접"], 
+        key="sc_box" + iter_no
+    )
+    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else sel_cl
 
-    # --- 기존 설정 및 디자인 그대로 유지 ---
     with st.expander("⚙️ 세부 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key="ar" + iter_no)
@@ -159,7 +165,7 @@ with t1:
             reset_all()
             st.rerun()
 
-# --- 정산 및 검색 (디자인 유지) ---
+# --- 정산 및 검색 디자인 유지 ---
 with t2:
     st.subheader("💰 월간 정산 내역")
     today_dt = date.today()
