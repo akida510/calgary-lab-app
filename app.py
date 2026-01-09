@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 (절대 변경 금지)
+# 1. 페이지 설정 및 디자인 유지 (절대 유지)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -73,19 +73,17 @@ t1, t2, t3 = st.tabs(["📝 Case Registration", "💰 Statistics", "🔍 Search"
 with t1:
     st.subheader("📋 입력 정보")
     
-    # 레퍼런스 데이터 미리 정리
+    # 레퍼런스 데이터 정리
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     
-    c1, c2, c3 = st.columns(3)
-    case_no = c1.text_input("Case #", key="c" + iter_no)
-    patient = c1.text_input("Patient", key="p" + iter_no)
-    
-    # 💡 매칭을 위해 의사를 먼저 선택 (순서 중요)
-    sel_doc = c3.selectbox("Doctor", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no)
-    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
+    # 💡 [핵심수정] 의사 선택을 먼저 배치하여 아래 병원 창이 참조할 수 있게 함
+    top_c1, top_c2 = st.columns([0.66, 0.33])
+    with top_c2:
+        sel_doc = st.selectbox("Doctor", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no)
+        f_doc = st.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
 
-    # 💡 의사 값에 따른 병원 인덱스 실시간 계산
+    # 매칭 로직 (의사 선택 즉시 실행)
     cl_idx = 0
     matched_cl_name = ""
     if sel_doc not in ["선택", "➕ 직접"]:
@@ -94,11 +92,18 @@ with t1:
             matched_cl_name = match_row.iloc[0, 1]
             if matched_cl_name in clinics_list:
                 cl_idx = clinics_list.index(matched_cl_name) + 1
-    
-    # 💡 계산된 인덱스를 병원 선택창에 즉시 적용
-    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics_list + ["➕ 직접"], index=cl_idx, key="sc_box" + iter_no)
-    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else matched_cl_name)
 
+    # 나머지 입력 칸 배치
+    with top_c1:
+        c1_sub, c2_sub = st.columns(2)
+        case_no = c1_sub.text_input("Case #", key="c" + iter_no)
+        patient = c1_sub.text_input("Patient", key="p" + iter_no)
+        
+        # 병원 선택 (의사에 의해 cl_idx가 결정됨)
+        sel_cl = c2_sub.selectbox("Clinic", ["선택"] + clinics_list + ["➕ 직접"], index=cl_idx, key="sc_box" + iter_no)
+        f_cl = c2_sub.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else matched_cl_name)
+
+    # --- 기존 설정 및 디자인 그대로 유지 ---
     with st.expander("⚙️ 세부 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key="ar" + iter_no)
@@ -140,9 +145,8 @@ with t1:
             if memo: final_notes += f" | {memo}"
 
             new_row = {
-                "Case #": case_no, "Clinic": final_cl,
-                "Doctor": f_doc, "Patient": patient, "Arch": arch, "Material": mat,
-                "Price": p_u, "Qty": qty, "Total": p_u * qty,
+                "Case #": case_no, "Clinic": final_cl, "Doctor": f_doc, "Patient": patient, 
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
                 "Receipt Date": "-" if is_33 else rd.strftime(dt_fmt),
                 "Completed Date": cp.strftime(dt_fmt),
                 "Shipping Date": shp_val.strftime(dt_fmt),
@@ -155,7 +159,7 @@ with t1:
             reset_all()
             st.rerun()
 
-# --- 정산 및 검색 (기존 디자인 유지) ---
+# --- 정산 및 검색 (디자인 유지) ---
 with t2:
     st.subheader("💰 월간 정산 내역")
     today_dt = date.today()
