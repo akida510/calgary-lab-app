@@ -24,7 +24,7 @@ st.markdown("---")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리
+# 세션 관리용 it 카운터
 if "it" not in st.session_state:
     st.session_state.it = 0
 iter_no = str(st.session_state.it)
@@ -37,13 +37,13 @@ def get_shp(d_date):
         if t.weekday() < 5: c += 1
     return t
 
-# 날짜 초기화 및 동기화
+# 날짜 초기화 및 동기화 (on_change용)
+def sync_date():
+    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
+
 if "due" + iter_no not in st.session_state:
     st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
 if "shp" + iter_no not in st.session_state:
-    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
-
-def sync_date():
     st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
 def reset_all():
@@ -67,16 +67,6 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
-# 💡 [핵심수정] 의사 선택 시 병원 매칭 후 즉시 리런
-def match_clinic_and_rerun():
-    doc_val = st.session_state["sd" + iter_no]
-    if doc_val not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 2] == doc_val]
-        if not match.empty:
-            # 매칭된 병원명을 세션에 저장
-            st.session_state["sc_val" + iter_no] = match.iloc[0, 1]
-            st.rerun() # 즉시 다시 그려서 병원 선택창 반영
-
 t1, t2, t3 = st.tabs(["📝 Case Registration", "💰 Statistics", "🔍 Search"])
 
 # --- [TAB 1: 등록] ---
@@ -86,20 +76,28 @@ with t1:
     case_no = c1.text_input("Case #", key="c" + iter_no)
     patient = c1.text_input("Patient", key="p" + iter_no)
     
-    # 1. 의사 선택 (on_change에 리런 함수 연결)
+    # 1. 의사 리스트 준비 및 선택
     docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-    sel_doc = c3.selectbox("Doctor", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no, on_change=match_clinic_and_rerun)
+    # 의사 선택창에 콜백 없이도 리런이 발생하도록 함
+    sel_doc = c3.selectbox("Doctor", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no)
     f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
     
-    # 2. 병원 선택 (세션에 저장된 매칭값 우선 적용)
+    # 2. 💡 실시간 매칭 로직 (st.rerun 없이 변수 참조)
+    matched_cl_name = ""
+    if sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
+        match_row = ref[ref.iloc[:, 2] == sel_doc]
+        if not match_row.empty:
+            matched_cl_name = match_row.iloc[0, 1]
+
+    # 3. 병원 리스트 준비 및 인덱스 설정
     clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
     
-    # 세션에서 자동 매칭된 병원명 확인
-    matched_cl = st.session_state.get("sc_val" + iter_no, "선택")
-    cl_idx = clinics.index(matched_cl) + 1 if matched_cl in clinics else 0
+    # 매칭된 병원이 있다면 해당 위치(index)를 계산, 없으면 0(선택)
+    cl_idx = clinics.index(matched_cl_name) + 1 if matched_cl_name in clinics else 0
     
+    # 병원 선택창 (의사 선택에 의해 cl_idx가 바뀌면 자동으로 따라감)
     sel_cl = c2.selectbox("Clinic", ["선택"] + clinics + ["➕ 직접"], index=cl_idx, key="sc_box" + iter_no)
-    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else matched_cl)
+    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else matched_cl_name)
 
     with st.expander("⚙️ 세부 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
@@ -129,9 +127,9 @@ with t1:
             st.error("❌ 필수 정보를 입력해주세요 (Case #, Doctor)")
         else:
             p_u = 180
-            target_cl = f_cl if f_cl != "선택" else ""
-            if target_cl and not ref.empty:
-                p_m = ref[ref.iloc[:, 1] == target_cl]
+            final_cl = f_cl if f_cl != "선택" else ""
+            if final_cl and not ref.empty:
+                p_m = ref[ref.iloc[:, 1] == final_cl]
                 if not p_m.empty:
                     try: p_u = int(float(p_m.iloc[0, 3]))
                     except: p_u = 180
@@ -142,7 +140,7 @@ with t1:
             if memo: final_notes += f" | {memo}"
 
             new_row = {
-                "Case #": case_no, "Clinic": target_cl,
+                "Case #": case_no, "Clinic": final_cl,
                 "Doctor": f_doc, "Patient": patient, "Arch": arch, "Material": mat,
                 "Price": p_u, "Qty": qty, "Total": p_u * qty,
                 "Receipt Date": "-" if is_33 else rd.strftime(dt_fmt),
@@ -154,12 +152,10 @@ with t1:
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
             st.success("✅ 저장이 완료되었습니다!")
             time.sleep(1)
-            # 세션 초기화 및 리셋
-            if "sc_val" + iter_no in st.session_state: del st.session_state["sc_val" + iter_no]
             reset_all()
             st.rerun()
 
-# --- 정산 및 검색 ---
+# --- 정산 및 검색 디자인 유지 ---
 with t2:
     st.subheader("💰 월간 정산 내역")
     today_dt = date.today()
