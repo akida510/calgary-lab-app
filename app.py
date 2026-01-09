@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 디자인 유지
+# 1. 페이지 설정 및 디자인 (절대 변경 금지)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -14,7 +14,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 제작자 정보 (상단 고정)
+# 제작자 정보 상단 고정
 col_header, col_info = st.columns([0.7, 0.3])
 with col_header:
     st.markdown("<h1 style='margin:0;'>🦷 Skycad Lab Night Guard</h1>", unsafe_allow_html=True)
@@ -24,7 +24,7 @@ st.markdown("---")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리용 it 카운터
+# 세션 관리
 if "it" not in st.session_state:
     st.session_state.it = 0
 iter_no = str(st.session_state.it)
@@ -37,7 +37,7 @@ def get_shp(d_date):
         if t.weekday() < 5: c += 1
     return t
 
-# 날짜 초기화 및 동기화 (on_change용)
+# 날짜 동기화
 def sync_date():
     st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
@@ -72,31 +72,31 @@ t1, t2, t3 = st.tabs(["📝 Case Registration", "💰 Statistics", "🔍 Search"
 # --- [TAB 1: 등록] ---
 with t1:
     st.subheader("📋 입력 정보")
+    
+    # 레퍼런스 데이터 미리 정리
+    docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case #", key="c" + iter_no)
     patient = c1.text_input("Patient", key="p" + iter_no)
     
-    # 1. 의사 리스트 준비 및 선택
-    docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-    # 의사 선택창에 콜백 없이도 리런이 발생하도록 함
-    sel_doc = c3.selectbox("Doctor", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no)
+    # 💡 매칭을 위해 의사를 먼저 선택 (순서 중요)
+    sel_doc = c3.selectbox("Doctor", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no)
     f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
-    
-    # 2. 💡 실시간 매칭 로직 (st.rerun 없이 변수 참조)
+
+    # 💡 의사 값에 따른 병원 인덱스 실시간 계산
+    cl_idx = 0
     matched_cl_name = ""
-    if sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
+    if sel_doc not in ["선택", "➕ 직접"]:
         match_row = ref[ref.iloc[:, 2] == sel_doc]
         if not match_row.empty:
             matched_cl_name = match_row.iloc[0, 1]
-
-    # 3. 병원 리스트 준비 및 인덱스 설정
-    clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+            if matched_cl_name in clinics_list:
+                cl_idx = clinics_list.index(matched_cl_name) + 1
     
-    # 매칭된 병원이 있다면 해당 위치(index)를 계산, 없으면 0(선택)
-    cl_idx = clinics.index(matched_cl_name) + 1 if matched_cl_name in clinics else 0
-    
-    # 병원 선택창 (의사 선택에 의해 cl_idx가 바뀌면 자동으로 따라감)
-    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics + ["➕ 직접"], index=cl_idx, key="sc_box" + iter_no)
+    # 💡 계산된 인덱스를 병원 선택창에 즉시 적용
+    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics_list + ["➕ 직접"], index=cl_idx, key="sc_box" + iter_no)
     f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else matched_cl_name)
 
     with st.expander("⚙️ 세부 설정", expanded=True):
@@ -155,7 +155,7 @@ with t1:
             reset_all()
             st.rerun()
 
-# --- 정산 및 검색 디자인 유지 ---
+# --- 정산 및 검색 (기존 디자인 유지) ---
 with t2:
     st.subheader("💰 월간 정산 내역")
     today_dt = date.today()
