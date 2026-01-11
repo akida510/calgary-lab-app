@@ -178,4 +178,37 @@ with t1:
 # --- [TAB 2: 통계 및 정산 섹션] ---
 with t2:
     st.markdown("### 💰 실적 및 부족 수량 확인")
-    today =
+    today = date.today()
+    sy, sm = st.columns(2)
+    s_y = sy.selectbox("연도", range(today.year, today.year - 5, -1))
+    s_m = sm.selectbox("월", range(1, 13), index=today.month - 1)
+    
+    if not main_df.empty:
+        pdf = main_df.copy()
+        pdf['SD_DT'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
+        m_dt = pdf[(pdf['SD_DT'].dt.year == s_y) & (pdf['SD_DT'].dt.month == s_m)]
+        
+        if not m_dt.empty:
+            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status']], use_container_width=True, hide_index=True)
+            
+            norm_cases = m_dt[m_dt['Status'].str.lower() == 'normal']
+            tot_qty = pd.to_numeric(norm_cases['Qty'], errors='coerce').sum()
+            tot_amt = pd.to_numeric(norm_cases['Total'], errors='coerce').sum()
+            target_qty = 320
+            diff_qty = target_qty - tot_qty
+            
+            st.markdown("---")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("총 생산 수량", f"{int(tot_qty)} ea")
+            m2.metric("320개 기준 부족분", f"{int(diff_qty)} ea" if diff_qty > 0 else "목표 달성!")
+            m3.metric("총 정산 금액 (매출 합계)", f"${int(tot_amt):,}")
+        else:
+            st.info("해당 월의 데이터가 없습니다.")
+
+# --- [TAB 3: 검색 섹션] ---
+with t3:
+    st.markdown("### 🔍 케이스 검색")
+    q_s = st.text_input("검색어 입력 (번호/환자명)", key="search_box")
+    if not main_df.empty and q_s:
+        f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
+        st.dataframe(f_df, use_container_width=True, hide_index=True)
