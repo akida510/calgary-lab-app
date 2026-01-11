@@ -4,12 +4,11 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 
-# 1. 페이지 설정 및 다크 네이비 테마 고정
+# 1. 페이지 설정 및 다크 네이비 테마 (디자인 최종 고정)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
-    /* 전체 배경: 다크 네이비 */
     .main { background-color: #0e1117; }
     
     /* 상단 헤더 섹션 - 디자인 및 색상 고정 */
@@ -59,7 +58,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 고정 제목 및 제작자 정보 (절대 수정 금지)
+# 💡 고정 제목 및 제작자 정보 (수정 금지)
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;">
@@ -73,7 +72,7 @@ st.markdown(f"""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리 및 날짜 로직
+# 세션 및 날짜 로직
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
@@ -106,8 +105,9 @@ def get_data():
 @st.cache_data(ttl=600)
 def get_ref():
     try:
+        # Reference 시트에서 병원/의사/특이사항 리스트를 가져옴
         return conn.read(worksheet="Reference", ttl=600).astype(str)
-    except: return pd.DataFrame(columns=["Clinic", "Doctor", "Price"])
+    except: return pd.DataFrame()
 
 main_df = get_data()
 ref = get_ref()
@@ -123,8 +123,8 @@ t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analyti
 
 # --- [TAB 1: 등록 섹션] ---
 with t1:
-    docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
-    clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor']) if not ref.empty else []
+    clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic']) if not ref.empty else []
     
     st.markdown("### 📋 정보 입력")
     c1, c2, c3 = st.columns(3)
@@ -149,6 +149,18 @@ with t1:
         shp_val = d3.date_input("Shipping Date (출고)", key="shp" + iter_no)
         stt = d3.selectbox("상태 (Status)", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
+    # 💡 복구된 특이사항 체크리스트 및 사진 입력 섹션
+    with st.expander("📂 특이사항 및 사진 (Notes & Photos)", expanded=True):
+        col_ex1, col_ex2 = st.columns([0.6, 0.4])
+        chks = []
+        if not ref.empty and len(ref.columns) > 3:
+            # Reference 시트 4번째 열부터 있는 데이터들을 체크리스트 항목으로 추출
+            chks_list = sorted(list(set([str(x) for x in ref.iloc[:,3:].values.flatten() if x and str(x)!='nan' and str(x)!='Price'])))
+            chks = col_ex1.multiselect("특이사항 선택", chks_list, key="ck" + iter_no)
+        
+        uploaded_file = col_ex1.file_uploader("사진 첨부", type=["jpg", "png", "jpeg"], key="img_up" + iter_no)
+        memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
+
     if st.button("🚀 데이터 저장하기"):
         if not case_no or f_doc in ["선택", ""]: st.error("필수 항목을 입력해주세요.")
         else:
@@ -160,6 +172,11 @@ with t1:
                     try: p_u = int(float(p_m.iloc[0, 3]))
                     except: p_u = 180
             
+            # 특이사항 + 메모 통합 처리
+            final_notes = ", ".join(chks)
+            if uploaded_file: final_notes += f" | 사진:{uploaded_file.name}"
+            if memo: final_notes += f" | 메모:{memo}"
+
             new_row = {
                 "Case #": case_no, "Clinic": final_cl, "Doctor": f_doc, "Patient": patient, 
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
@@ -167,10 +184,10 @@ with t1:
                 "Completed Date": cp.strftime('%Y-%m-%d'),
                 "Shipping Date": shp_val.strftime('%Y-%m-%d'),
                 "Due Date": due_val.strftime('%Y-%m-%d'),
-                "Status": stt, "Notes": ""
+                "Status": stt, "Notes": final_notes
             }
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
-            st.success("저장 완료!")
+            st.success("데이터가 성공적으로 저장되었습니다.")
             time.sleep(1)
             reset_all()
             st.rerun()
@@ -189,7 +206,7 @@ with t2:
         m_dt = pdf[(pdf['SD_DT'].dt.year == s_y) & (pdf['SD_DT'].dt.month == s_m)]
         
         if not m_dt.empty:
-            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status']], use_container_width=True, hide_index=True)
+            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status', 'Notes']], use_container_width=True, hide_index=True)
             
             norm_cases = m_dt[m_dt['Status'].str.lower() == 'normal']
             tot_qty = pd.to_numeric(norm_cases['Qty'], errors='coerce').sum()
@@ -201,7 +218,7 @@ with t2:
             m1, m2, m3 = st.columns(3)
             m1.metric("총 생산 수량", f"{int(tot_qty)} ea")
             m2.metric("320개 기준 부족분", f"{int(diff_qty)} ea" if diff_qty > 0 else "목표 달성!")
-            m3.metric("총 정산 금액 (매출 합계)", f"${int(tot_amt):,}")
+            m3.metric("총 정산 금액 매출 합계", f"${int(tot_amt):,}")
         else:
             st.info("해당 월의 데이터가 없습니다.")
 
