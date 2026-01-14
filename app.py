@@ -4,122 +4,229 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import google.generativeai as genai
 from PIL import Image
+import time
 
-# 1. 초기 설정 및 NameError 방지
+# 1. 페이지 설정 및 디자인 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
-main_df = pd.DataFrame()
-clinics, doctors = [], []
 
-# 2. 디자인 복구 (희철님 취향 저격 디자인)
 st.markdown("""
     <style>
-    .main { background-color: #0e1117; }
-    .header-box {
-        background-color: #1a1c24; padding: 25px; border-radius: 15px;
-        border: 1px solid #4c6ef5; margin-bottom: 25px; text-align: center;
-        box-shadow: 0 4px 15px rgba(76, 110, 245, 0.2);
-    }
-    .stButton>button { width: 100%; height: 3.5em; background-color: #4c6ef5 !important; color: white !important; font-weight: bold; border-radius: 10px; }
-    .stTabs [aria-selected="true"] { background-color: #4c6ef5 !important; color: white !important; border-radius: 8px; }
+    .stHeader { background-color: #1e293b; color: white; padding: 1.5rem; border-radius: 10px; margin-bottom: 2rem; }
+    .footer { text-align: right; font-size: 14px; font-weight: bold; color: #64748b; }
+    /* 버튼 및 탭 포인트 컬러 */
+    .stButton>button { border-radius: 8px; }
+    .stTabs [aria-selected="true"] { background-color: #4c6ef5 !important; color: white !important; font-weight: bold; border-radius: 8px; }
     </style>
-    <div class="header-box">
-        <h1 style="color:white; margin:0; font-size: 30px;">🦷 Skycad Dental Lab Manager</h1>
-        <p style="color:#4c6ef5; margin:5px 0 0 0; font-weight:bold;">Secure Management & Financial System</p>
-    </div>
     """, unsafe_allow_html=True)
 
-# 3. 데이터베이스 연결 (가장 안전한 표준 방식)
-@st.cache_resource(ttl=600)
-def get_db_conn():
-    try:
-        # 💡 핵심 해결: spreadsheet 인자를 수동으로 넣지 않고 라이브러리에 맡김
-        # 단, private_key의 줄바꿈 문자 처리를 위해 내부 설정을 건드리지 않고 그대로 연결
-        return st.connection("gsheets", type=GSheetsConnection)
-    except Exception as e:
-        st.error(f"❌ 연결 실패: {e}")
-        return None
-
-conn = get_db_conn()
-
-if conn is not None:
-    try:
-        # 시트 읽기
-        main_df = conn.read(ttl=1).astype(str)
-        ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
-        if not ref_df.empty:
-            clinics = sorted([c for c in ref_df.iloc[:,1].unique() if str(c) != 'nan'])
-            doctors = sorted([d for d in ref_df.iloc[:,2].unique() if str(d) != 'nan'])
-    except: pass
-
-# AI 설정
+# AI 설정 (Secrets 확인 필수)
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-if "it" not in st.session_state: st.session_state.it = 0
-it_key = str(st.session_state.it)
+# 제작자 정보 상단 고정
+col_header, col_info = st.columns([0.7, 0.3])
+with col_header:
+    st.markdown("<h1 style='margin:0;'>🦷 Skycad Lab Night Guard</h1>", unsafe_allow_html=True)
+with col_info:
+    st.markdown("<p style='text-align:right; margin-top:15px; color:#64748b;'>Designed By Heechul Jung</p>", unsafe_allow_html=True)
+st.markdown("---")
 
-# 4. 메인 탭 구성
-tab1, tab2, tab3, tab4 = st.tabs(["📝 신규 등록", "📊 생산 현황", "🔍 통합 검색", "💰 정산(Financial)"])
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-with tab1:
-    st.markdown("### 📸 의뢰서 AI 스캔")
-    c_scan, c_pre = st.columns([0.4, 0.6])
-    with c_scan:
-        f = st.file_uploader("이미지 업로드", type=["jpg","png","jpeg"], key=f"f_{it_key}")
-        if f and st.button("✨ 정보 추출"):
-            with st.spinner("분석 중..."):
-                try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    res = model.generate_content(["Extract CASE, PATIENT. Format: CASE:val, PATIENT:val", Image.open(f)]).text
-                    for item in res.replace('\n', ',').split(','):
-                        if ':' in item:
-                            k, v = item.split(':', 1)
-                            if 'CASE' in k.upper(): st.session_state["c"+it_key] = v.strip()
-                            if 'PATIENT' in k.upper(): st.session_state["p"+it_key] = v.strip()
-                    st.rerun()
-                except: st.error("AI 오류")
-    with c_pre:
-        if f: st.image(f, width=250)
+# 세션 관리용 it 카운터
+if "it" not in st.session_state:
+    st.session_state.it = 0
+iter_no = str(st.session_state.it)
 
-    st.divider()
-    c1, c2, c3 = st.columns(3)
-    case_no = c1.text_input("Case Number", key="c"+it_key)
-    patient = c1.text_input("환자명", key="p"+it_key)
-    sel_cl = c2.selectbox("병원", ["선택"] + clinics + ["➕ 직접입력"], key="cl"+it_key)
-    sel_dr = c3.selectbox("의사", ["선택"] + doctors + ["➕ 직접입력"], key="dr"+it_key)
+# [함수] 주말 제외 2일 전 계산
+def get_shp(d_date):
+    t, c = d_date, 0
+    while c < 2:
+        t -= timedelta(days=1)
+        if t.weekday() < 5: c += 1
+    return t
 
-    with st.expander("🛠️ 상세 정보", expanded=True):
-        d1, d2, d3 = st.columns(3)
-        mat = d1.selectbox("재질", ["Thermo","Dual","Soft","Hard"], key="m"+it_key)
-        rd = d2.date_input("접수일", date.today(), key="rd"+it_key)
-        due = d3.date_input("마감일", date.today()+timedelta(7), key="du"+it_key)
-        shp = d3.date_input("출고일", due-timedelta(2), key="sh"+it_key)
+# 날짜 초기화 및 동기화
+if "due" + iter_no not in st.session_state:
+    st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
+if "shp" + iter_no not in st.session_state:
+    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
-    with st.expander("📂 메모 및 사진", expanded=True):
-        col_img, col_memo = st.columns([0.6, 0.4])
-        with col_img: st.file_uploader("추가 사진", accept_multiple_files=True, key=f"imgs_{it_key}")
-        with col_memo: memo = st.text_area("메모", key="me"+it_key, height=120)
+def sync_date():
+    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
-    if st.button("🚀 데이터 저장"):
-        st.success("전송 완료!")
-        st.session_state.it += 1
-        st.rerun()
+def reset_all():
+    st.session_state.it += 1
+    st.cache_data.clear()
 
-with tab2:
-    st.markdown("### 📊 최근 등록 리스트")
-    st.dataframe(main_df.tail(20), use_container_width=True)
+@st.cache_data(ttl=1)
+def get_data():
+    try:
+        df = conn.read(ttl=0).astype(str)
+        return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
+    except: return pd.DataFrame()
 
-with tab3:
-    st.markdown("### 🔍 케이스 검색")
-    q = st.text_input("검색어 입력")
-    if q and not main_df.empty:
-        st.dataframe(main_df[main_df.apply(lambda r: q in r.astype(str).values, axis=1)], use_container_width=True)
+@st.cache_data(ttl=600)
+def get_ref():
+    try:
+        return conn.read(worksheet="Reference", ttl=600).astype(str)
+    except Exception:
+        return pd.DataFrame(columns=["Clinic", "Doctor", "Price"])
 
-with tab4:
-    st.markdown("### 💰 정산 관리")
-    f1, f2, f3 = st.columns(3)
-    f1.metric("총 매출", "$ 12,450", "+5%")
-    f2.metric("미결제 건", "14건", "-2")
-    f3.metric("결제 완료", "$ 8,200", "65%")
+main_df = get_data()
+ref = get_ref()
+
+# 💡 병원 자동 업데이트 로직
+def update_clinic_from_doctor():
+    selected_doctor = st.session_state["sd" + iter_no]
+    if selected_doctor not in ["선택", "➕ 직접"] and not ref.empty:
+        match = ref[ref.iloc[:, 2] == selected_doctor]
+        if not match.empty:
+            matched_clinic = match.iloc[0, 1]
+            st.session_state["sc_box" + iter_no] = matched_clinic
+
+# ---------------------------------------------------------
+# UI 메인 탭
+# ---------------------------------------------------------
+t1, t2, t3 = st.tabs(["📝 Case Registration", "💰 Statistics", "🔍 Search"])
+
+with t1:
+    # --- 📸 AI 의뢰서 분석 (상단 배치) ---
+    st.subheader("📸 의뢰서 자동 스캔")
+    with st.expander("의뢰서 사진을 업로드하여 자동 입력하기", expanded=True):
+        c_scan, c_pre = st.columns([0.6, 0.4])
+        scan_file = c_scan.file_uploader("의뢰서 이미지 (JPG, PNG)", type=["jpg", "png", "jpeg"], key="scan_up"+iter_no)
+        
+        if scan_file:
+            c_pre.image(scan_file, use_container_width=True, caption="스캔 대상")
+            if c_scan.button("✨ AI 분석 실행", use_container_width=True, type="secondary"):
+                with st.spinner("Gemini AI가 텍스트를 분석 중..."):
+                    try:
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        img = Image.open(scan_file)
+                        prompt = "Extract 'Case Number', 'Patient Name', 'Doctor Name' from this dental lab form. Format: CASE:val, PATIENT:val, DOCTOR:val"
+                        response = model.generate_content([prompt, img])
+                        
+                        for line in response.text.split(','):
+                            if ':' in line:
+                                k, v = line.split(':', 1)
+                                k, v = k.strip().upper(), v.strip()
+                                if 'CASE' in k: st.session_state["c"+iter_no] = v
+                                if 'PATIENT' in k: st.session_state["p"+iter_no] = v
+                                if 'DOCTOR' in k: 
+                                    st.session_state["sd"+iter_no] = v
+                                    update_clinic_from_doctor() # 병원 연동 실행
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"AI 분석 중 오류 발생: {e}")
+
     st.markdown("---")
-    st.table(pd.DataFrame({"병원명": ["A치과", "B치과"], "미수금": ["$500", "$1,200"]}))
+    st.subheader("📋 입력 정보")
+    
+    docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+    clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    
+    c1, c2, c3 = st.columns(3)
+    case_no = c1.text_input("Case #", key="c" + iter_no)
+    patient = c1.text_input("Patient", key="p" + iter_no)
+    
+    # 의사 선택 (Callback 포함)
+    sel_doc = c3.selectbox(
+        "Doctor", 
+        ["선택"] + docs_list + ["➕ 직접"], 
+        key="sd" + iter_no, 
+        on_change=update_clinic_from_doctor
+    )
+    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else sel_doc
+
+    # 병원 선택
+    if "sc_box" + iter_no not in st.session_state:
+        st.session_state["sc_box" + iter_no] = "선택"
+        
+    sel_cl = c2.selectbox(
+        "Clinic", 
+        ["선택"] + clinics_list + ["➕ 직접"], 
+        key="sc_box" + iter_no
+    )
+    f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else sel_cl
+
+    with st.expander("⚙️ 세부 설정", expanded=True):
+        d1, d2, d3 = st.columns(3)
+        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key="ar" + iter_no)
+        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key="ma" + iter_no)
+        qty = d1.number_input("Qty", 1, 10, 1, key="qy" + iter_no)
+        is_33 = d2.checkbox("3D Scan Mode", True, key="d3" + iter_no)
+        rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
+        cp = d2.date_input("완료예정일", date.today()+timedelta(1), key="cp" + iter_no)
+        due_val = d3.date_input("마감일 (Due)", key="due" + iter_no, on_change=sync_date)
+        shp_val = d3.date_input("출고일 (Shipping)", key="shp" + iter_no)
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st" + iter_no)
+
+    with st.expander("✅ 기타 및 사진 첨부", expanded=True):
+        col_ex1, col_ex2 = st.columns([0.6, 0.4])
+        chks = []
+        if not ref.empty and len(ref.columns) > 3:
+            ch_r = ref.iloc[:,3:].values.flatten()
+            chks_list = sorted(list(set([str(x) for x in ch_r if x and str(x)!='nan'])))
+            chks = col_ex1.multiselect("특이사항 선택", chks_list, key="ck" + iter_no)
+        
+        uploaded_file = col_ex1.file_uploader("등록 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up" + iter_no)
+        memo = col_ex2.text_area("메모 사항", key="me" + iter_no, height=130)
+
+    if st.button("🚀 데이터 저장하기", use_container_width=True, type="primary"):
+        if not case_no or f_doc in ["선택", ""]:
+            st.error("❌ 필수 정보를 입력해주세요 (Case #, Doctor)")
+        else:
+            p_u = 180
+            final_cl = f_cl if f_cl != "선택" else ""
+            if final_cl and not ref.empty:
+                p_m = ref[ref.iloc[:, 1] == final_cl]
+                if not p_m.empty:
+                    try: p_u = int(float(p_m.iloc[0, 3]))
+                    except: p_u = 180
+            
+            dt_fmt = '%Y-%m-%d'
+            final_notes = ", ".join(chks)
+            if uploaded_file: final_notes += f" | 사진: {uploaded_file.name}"
+            if memo: final_notes += f" | {memo}"
+
+            new_row = {
+                "Case #": case_no, "Clinic": final_cl, "Doctor": f_doc, "Patient": patient, 
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
+                "Receipt Date": "-" if is_33 else rd.strftime(dt_fmt),
+                "Completed Date": cp.strftime(dt_fmt),
+                "Shipping Date": shp_val.strftime(dt_fmt),
+                "Due Date": due_val.strftime(dt_fmt),
+                "Status": stt, "Notes": final_notes
+            }
+            conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
+            st.success("✅ 저장이 완료되었습니다!")
+            time.sleep(1)
+            reset_all()
+            st.rerun()
+
+# --- 하단 정산/검색은 기존 로직 유지 ---
+with t2:
+    st.subheader("💰 월간 정산 내역")
+    today_dt = date.today()
+    sy, sm = st.columns(2)
+    s_y = sy.selectbox("연도", range(today_dt.year, today_dt.year - 5, -1))
+    s_m = sm.selectbox("월", range(1, 13), index=today_dt.month - 1)
+    if not main_df.empty:
+        pdf = main_df.copy()
+        pdf['SD'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
+        m_dt = pdf[(pdf['SD'].dt.year == s_y) & (pdf['SD'].dt.month == s_m)]
+        if not m_dt.empty:
+            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status']], use_container_width=True, hide_index=True)
+            pay = m_dt[m_dt['Status'].str.lower() == 'normal']
+            tot = pd.to_numeric(pay['Qty'], errors='coerce').sum()
+            st.metric("Total Quantity", f"{int(tot)} ea")
+
+with t3:
+    st.subheader("🔍 케이스 검색")
+    q_s = st.text_input("케이스 번호 또는 환자명 입력", key="search_box")
+    if not main_df.empty:
+        if q_s:
+            f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
+            st.dataframe(f_df, use_container_width=True, hide_index=True)
+        else: st.dataframe(main_df.tail(20), use_container_width=True, hide_index=True)
