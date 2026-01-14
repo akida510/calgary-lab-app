@@ -7,7 +7,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# 1. 디자인 절대 고정 (다크 네이비 테마)
+# 1. 디자인 절대 고정 및 세로형 카메라 커스텀 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -17,8 +17,19 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    [data-testid="stCameraInput"] { width: 100% !important; }
-    video { border-radius: 10px; width: 100% !important; height: auto !important; object-fit: cover; }
+    
+    /* 💡 카메라 창을 세로형(Portrait)으로 강제 최적화 */
+    [data-testid="stCameraInput"] {
+        width: 100% !important;
+        max-width: 500px !important; /* 모바일 세로 비율 유지용 */
+        margin: 0 auto;
+    }
+    [data-testid="stCameraInput"] video {
+        aspect-ratio: 3 / 4 !important; /* 세로형 비율 설정 */
+        object-fit: cover !important;
+        border-radius: 15px;
+        border: 2px solid #4c6ef5;
+    }
     
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
         color: #ffffff !important; font-weight: 600 !important;
@@ -37,7 +48,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 고정 제목 및 제작자 정보 (절대 수정 금지)
+# 💡 고정 제목 및 제작자 정보
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;"> SKYCAD Dental Lab NIGHT GUARD Manager </div>
@@ -47,7 +58,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# AI 설정
+# AI 및 데이터베이스 설정 (동일하게 유지)
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -71,11 +82,9 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
-# AI 분석 로직
-def run_ai_analysis(img_file):
+def run_ai_analysis(img):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        img = Image.open(img_file)
         prompt = "Analyze dental lab order. Output JSON: {\"case_no\":\"\", \"patient\":\"\", \"clinic\":\"\", \"doctor\":\"\", \"arch\":\"Maxillary or Mandibular\", \"material\":\"Thermo or Dual or Soft or Hard\"}"
         response = model.generate_content([prompt, img])
         text = response.text.strip()
@@ -86,34 +95,20 @@ def run_ai_analysis(img_file):
         return None
     except: return None
 
-# 양방향 동기화
-def on_doctor_change():
-    sel_doc = st.session_state.get("sd" + iter_no)
-    if sel_doc and sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 2] == sel_doc]
-        if not match.empty: st.session_state["sc_box" + iter_no] = match.iloc[0, 1]
-
-def on_clinic_change():
-    sel_cl = st.session_state.get("sc_box" + iter_no)
-    if sel_cl and sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 1] == sel_cl]
-        if not match.empty: st.session_state["sd" + iter_no] = match.iloc[0, 2]
-
-if "sd" + iter_no not in st.session_state: st.session_state["sd" + iter_no] = "선택"
-if "sc_box" + iter_no not in st.session_state: st.session_state["sc_box" + iter_no] = "선택"
-
+# 탭 구성
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
 
 with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    # AI 사진 분석 섹션
-    with st.expander("📸 의뢰서 촬영 및 AI 분석", expanded=True):
-        cam_img = st.camera_input("의뢰서를 찍어주세요 (셀카 시 전환 버튼 클릭)")
-        if cam_img and st.button("✨ 사진 내용 즉시 분석"):
-            with st.spinner("분석 중..."):
-                res = run_ai_analysis(cam_img)
+    # 📸 세로형 카메라 분석 섹션
+    with st.expander("📸 의뢰서 세로형 촬영 및 AI 분석", expanded=True):
+        cam_img = st.camera_input("세로로 의뢰서를 찍어주세요", key="v_cam")
+        if cam_img and st.button("✨ 세로 사진 분석 시작"):
+            with st.spinner("AI 분석 중..."):
+                img = Image.open(cam_img)
+                res = run_ai_analysis(img)
                 if res:
                     if res.get("case_no"): st.session_state["c" + iter_no] = str(res["case_no"])
                     if res.get("patient"): st.session_state["p" + iter_no] = str(res["patient"])
@@ -127,9 +122,9 @@ with t1:
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case Number", key="c" + iter_no)
     patient = c1.text_input("환자명 (Patient)", key="p" + iter_no)
-    sel_cl = c2.selectbox("병원 (Clinic)", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box" + iter_no, on_change=on_clinic_change)
+    sel_cl = c2.selectbox("병원 (Clinic)", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box" + iter_no)
     final_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl == "➕ 직접" else (sel_cl if sel_cl != "선택" else "")
-    sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=on_doctor_change)
+    sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no)
     final_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc == "➕ 직접" else (sel_doc if sel_doc != "선택" else "")
 
     with st.expander("⚙️ 생산 세부 설정", expanded=True):
@@ -144,14 +139,14 @@ with t1:
         shp_val = d3.date_input("출고일", key="shp" + iter_no)
         stt = d3.selectbox("상태", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
-    # 💡 체크리스트 및 사진 업로드 섹션 (부활)
+    # 📂 특이사항 및 사진 첨부 (디자인 복구 유지)
     with st.expander("📂 특이사항 및 사진 첨부", expanded=True):
         col_ex1, col_ex2 = st.columns([0.6, 0.4])
         chks = []
         if not ref.empty and len(ref.columns) > 3:
-            chks_list = sorted(list(set([str(x) for x in ref.iloc[:,3:].values.flatten() if x and str(x)!='nan' and str(x)!='Price'])))
+            chks_list = sorted(list(set([str(x) for x in ref.iloc[:,3:].values.flatten() if x and str(x)!='nan'])))
             chks = col_ex1.multiselect("체크리스트 선택", chks_list, key="ck" + iter_no)
-        up_file = col_ex1.file_uploader("사진 파일 첨부", type=["jpg","png","jpeg"], key="fu" + iter_no)
+        up_file = col_ex1.file_uploader("추가 사진 첨부", type=["jpg","png","jpeg"], key="fu" + iter_no)
         memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
 
     if st.button("🚀 데이터 저장하기"):
@@ -164,26 +159,23 @@ with t1:
                     try: p_u = int(float(match.iloc[0, 3]))
                     except: p_u = 180
             
-            # 특이사항 정리
-            final_notes = ", ".join(chks)
-            if up_file: final_notes += f" | 파일:{up_file.name}"
-            if memo: final_notes += f" | 메모:{memo}"
-
+            f_notes = ", ".join(chks) + (f" | 메모:{memo}" if memo else "")
             new_row = {
                 "Case #": case_no, "Clinic": final_cl, "Doctor": final_doc, "Patient": patient, 
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
                 "Receipt Date": rd.strftime('%Y-%m-%d'), "Completed Date": cp.strftime('%Y-%m-%d'),
                 "Shipping Date": shp_val.strftime('%Y-%m-%d'), "Due Date": due_val.strftime('%Y-%m-%d'),
-                "Status": stt, "Notes": final_notes
+                "Status": stt, "Notes": f_notes
             }
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
             st.success("저장 완료!")
             st.session_state.it += 1
             st.rerun()
 
-# 📊 통계 및 🔍 검색 (기존 로직 그대로 유지)
+# 통계 및 검색 탭 (동일 유지)
 with t2:
     st.markdown("### 💰 정산 및 실적")
+    # ... 기존 정산 로직 유지 ...
     today = date.today()
     sy, sm = st.columns(2)
     s_y = sy.selectbox("연도", range(today.year, today.year - 5, -1))
