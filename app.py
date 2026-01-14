@@ -2,131 +2,183 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta, date
+import time
 
-# 1. 페이지 설정 및 디자인 (절대 고정)
-st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
-st.markdown("""
-    <style>
-    .main { background-color: #0e1117; }
-    .header-container { display: flex; justify-content: space-between; align-items: center; background-color: #1a1c24; padding: 20px 30px; border-radius: 10px; margin-bottom: 25px; border: 1px solid #30363d; }
-    [data-testid="stWidgetLabel"] p, label p, .stMetric p { color: #ffffff !important; font-weight: 600 !important; }
-    .stTextInput input, .stSelectbox div[data-baseweb="select"], .stNumberInput input, textarea { background-color: #1a1c24 !important; color: #ffffff !important; border: 1px solid #4a4a4a !important; }
-    .stButton>button { width: 100%; height: 3.5em; background-color: #4c6ef5 !important; color: white !important; font-weight: bold; border-radius: 5px; }
-    [data-testid="stMetricValue"] { color: #4c6ef5 !important; }
-    </style>
-    """, unsafe_allow_html=True)
+# 1. 페이지 설정 및 상단 레이아웃
+st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
-st.markdown(f"""<div class="header-container"><div style="font-size: 26px; font-weight: 800; color: #ffffff;">Skycad Dental Lab Manager</div><div style="text-align: right; color: #ffffff;"><span style="font-size: 18px; font-weight: 600;">Designed By Heechul Jung</span></div></div>""", unsafe_allow_html=True)
+# 제목과 제작자 정보 (글씨 밝기를 #666으로 조정하여 선명하게 함)
+st.markdown(
+    """
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1 style="margin: 0;">🦷 Skycad Lab Night Guard Manager</h1>
+        <b style="font-size: 15px; color: #666;">Designed By Heechul Jung</b>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# 2. 데이터 연결 설정
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-if "it" not in st.session_state: st.session_state.it = 0
-it_no = str(st.session_state.it)
+# 2. 세션 상태 관리
+if "it" not in st.session_state: 
+    st.session_state.it = 0
 
-# [데이터 로드 - 에러 방지용 보수적 로드]
+i = st.session_state.it
+
+# 날짜 초기값 설정
+if f"due{i}" not in st.session_state:
+    st.session_state[f"due{i}"] = date.today() + timedelta(days=7)
+if f"shp{i}" not in st.session_state:
+    st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
+
+def sync_dates():
+    st.session_state[f"shp{i}"] = st.session_state[f"due{i}"] - timedelta(days=2)
+
+def reset_fields():
+    st.session_state.it += 1
+    st.cache_data.clear()
+
 @st.cache_data(ttl=1)
-def load_data():
+def get_d():
+    cols = ["Case #", "Clinic", "Doctor", "Patient", "Arch", "Material", "Price", "Qty", "Total", "Receipt Date", "Completed Date", "Shipping Date", "Due Date", "Status", "Notes"]
     try:
-        # secrets.toml에 등록된 url을 사용해 전체 데이터 로드
         df = conn.read(ttl=0).astype(str)
-        # 빈 줄 제거
-        df = df[df.iloc[:, 0].str.strip() != ""].copy()
-        # 날짜 형식 유연하게 변환 (2026.1.13 -> 2026-01-13)
-        if 'Shipping Date' in df.columns:
-            df['dt_filter'] = pd.to_datetime(df['Shipping Date'].str.replace('.', '-'), errors='coerce')
-        return df
-    except Exception as e:
-        # Padding 에러가 날 경우 에러 내용을 화면에 표시
-        st.error(f"❌ 연결 오류 발생: {e}")
-        return pd.DataFrame()
+        if df.empty or "Case #" not in df.columns:
+            return pd.DataFrame(columns=cols)
+        df = df[df['Case #'].str.strip() != ""]
+        df = df.apply(lambda x: x.str.replace(' 00:00:00','',regex=False).str.strip())
+        return df.reset_index(drop=True)
+    except: 
+        return pd.DataFrame(columns=cols)
 
-@st.cache_data(ttl=1)
-def load_ref():
-    try:
-        df = conn.read(worksheet="Reference", ttl=0).astype(str)
-        return df
-    except:
-        return pd.DataFrame()
+m_df = get_d()
+ref_df = conn.read(worksheet="Reference", ttl=600).astype(str)
 
-main_df = load_data()
-ref_df = load_ref()
-
-t1, t2, t3 = st.tabs(["📝 등록", "📊 정산 (리스트)", "🔍 검색"])
+t1, t2, t3 = st.tabs(["📝 등록", "💰 정산", "🔍 검색"])
 
 # --- [TAB 1: 등록] ---
 with t1:
-    clinics = sorted([c for c in ref_df.iloc[:,1].unique() if c and str(c).lower()!='nan']) if not ref_df.empty else []
-    docs = sorted([d for d in ref_df.iloc[:,2].unique() if d and str(d).lower()!='nan']) if not ref_df.empty else []
-    
+    st.subheader("📋 데이터 입력")
     c1, c2, c3 = st.columns(3)
-    case_no = c1.text_input("Case Number", key="c"+it_no)
-    patient = c1.text_input("Patient", key="p"+it_no)
-    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics + ["➕ 직접"], key="sc"+it_no)
-    sel_doc = c3.selectbox("Doctor", ["선택"] + docs + ["➕ 직접"], key="sd"+it_no)
-
-    with st.expander("⚙️ 세부 설정", expanded=True):
-        d1, d2, d3 = st.columns(3)
-        qty = d1.number_input("Qty", 1, 10, 1, key="qy"+it_no)
-        due_v = d2.date_input("Due Date", key="due"+it_no)
-        shp_v = d3.date_input("Shipping Date", key="shp"+it_no)
-        stt_v = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st"+it_no)
-
-    st.markdown("### 📂 특이사항 (Reference 연동)")
-    chks_opts = []
-    if not ref_df.empty and len(ref_df.columns) > 3:
-        raw = ref_df.iloc[:, 3:].values.flatten()
-        chks_opts = sorted(list(set([str(v).strip() for v in raw if v and str(v).lower() not in ['nan','price','']])))
+    case_no = c1.text_input("Case # (팬번호)", key=f"c{i}")
+    patient = c1.text_input("Patient", key=f"p{i}")
     
-    sel_chks = st.multiselect("📌 특이사항 선택", chks_opts, key="ck"+it_no)
-    memo_v = st.text_area("📝 메모", key="me"+it_no)
-
-    if st.button("🚀 저장하기"):
-        st.success("데이터 전송 시도 완료!")
-        st.session_state.it += 1
-        st.cache_data.clear()
-        st.rerun()
-
-# --- [TAB 2: 정산 - 리스트 무조건 출력] ---
-with t2:
-    st.markdown("### 📊 월별 정산 리스트")
-    y_col, m_col = st.columns(2)
-    sel_y = y_col.selectbox("연도", [2025, 2026, 2027], index=1)
-    sel_m = m_col.selectbox("월", range(1, 13), index=date.today().month - 1)
+    cl_list = sorted([str(c) for c in ref_df.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic'])
+    sel_cl = c2.selectbox("Clinic 검색/선택", ["선택 안함", "➕ 직접 입력"] + cl_list, key=f"cl{i}")
     
-    if not main_df.empty:
-        # 날짜 필터 적용
-        m_df = main_df[
-            (main_df['dt_filter'].dt.year == sel_y) & 
-            (main_df['dt_filter'].dt.month == sel_m)
-        ].copy()
-        
-        if not m_df.empty:
-            # 사진처럼 리스트 노출 (케이스 번호 역순)
-            st.dataframe(
-                m_df[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Status', 'Notes']].sort_values('Case #', ascending=False), 
-                use_container_width=True, hide_index=True
-            )
-            
-            norm_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
-            t_qty = pd.to_numeric(norm_df['Qty'], errors='coerce').sum()
-            ov_qty = max(0, t_qty - 320)
-            ov_amt = ov_qty * 19.505333
-            
-            st.markdown("---")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("총 생산 수량", f"{int(t_qty)} ea")
-            m2.metric("320개 초과분", f"{int(ov_qty)} ea")
-            m3.metric("초과 수익 ($)", f"${ov_amt:,.2f}")
-        else:
-            st.warning(f"⚠️ {sel_y}년 {sel_m}월 데이터가 없습니다.")
+    f_cl = ""
+    if sel_cl == "➕ 직접 입력":
+        f_cl = c2.text_input("클리닉명 직접입력", key=f"fcl{i}")
+    elif sel_cl != "선택 안함":
+        f_cl = sel_cl
+    
+    if sel_cl not in ["선택 안함", "➕ 직접 입력"]:
+        doc_list = sorted([str(d) for d in ref_df[ref_df.iloc[:,1]==sel_cl].iloc[:,2].unique() if d and str(d)!='nan'])
     else:
-        st.error("❌ 데이터를 불러올 수 없습니다. secrets.toml의 URL이나 시트 공유 설정을 확인하세요.")
+        doc_list = sorted([str(d) for d in ref_df.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor'])
+
+    sel_doc = c3.selectbox("Doctor 검색/선택", ["선택 안함", "➕ 직접 입력"] + doc_list, key=f"d{i}")
+    
+    f_doc = ""
+    if sel_doc == "➕ 직접 입력":
+        f_doc = c3.text_input("의사명 직접입력", key=f"fd{i}")
+    elif sel_doc != "선택 안함":
+        f_doc = sel_doc
+
+    with st.expander("⚙️ 세부 옵션 설정", expanded=True):
+        d1, d2, d3 = st.columns(3)
+        arch = d1.radio("Arch", ["Max","Mand"], horizontal=True, key=f"a{i}")
+        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key=f"m{i}")
+        qty = d1.number_input("Qty", 1, 10, 1, key=f"q{i}")
+        is_33 = d2.checkbox("3D 스캔 (접수일 제외)", True, key=f"3d{i}")
+        rd = d2.date_input("접수일", date.today(), key=f"rd{i}", disabled=is_33)
+        cp = d2.date_input("완료일", date.today()+timedelta(1), key=f"cd{i}")
+        
+        if d2.checkbox("마감일/출고일 사용", True, key=f"h_d{i}"):
+            due = d3.date_input("마감일", key=f"due{i}", on_change=sync_dates)
+            shp = d3.date_input("출고일", key=f"shp{i}")
+            s_t = d3.selectbox("배송 시간", ["Noon","EOD","ASAP"], key=f"st_time{i}") if due==shp else ""
+        else:
+            due = shp = s_t = None
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key=f"st_stat{i}")
+
+    with st.expander("✅ 체크리스트 & 메모", expanded=True):
+        chk_raw = ref_df.iloc[:, 3:].values.flatten()
+        chk_opts = sorted(list(set([str(x) for x in chk_raw if x and str(x)!='nan'])))
+        chks = st.multiselect("체크리스트 선택", chk_opts, key=f"ck{i}")
+        memo = st.text_input("추가 메모", key=f"me{i}")
+        up_img = st.file_uploader("📸 사진 업로드", type=['jpg', 'png', 'jpeg'], key=f"img{i}")
+        if up_img: st.image(up_img, width=300)
+
+    if st.button("🚀 시트에 저장하기", use_container_width=True):
+        if not case_no:
+            st.error("Case #를 입력해 주세요.")
+        elif not f_cl and not f_doc:
+            st.error("Clinic 또는 Doctor 중 하나는 입력해야 합니다.")
+        else:
+            p_u = 180
+            if f_cl:
+                try:
+                    p_u_val = ref_df[ref_df.iloc[:, 1] == f_cl].iloc[0, 3]
+                    p_u = int(float(p_u_val))
+                except: p_u = 180
+            
+            dfmt = '%Y-%m-%d'
+            # [수정된 부분] 괄호와 조건문 구문 오류 해결
+            final_notes = ", ".join(chks) + (f" | {memo}" if memo else "")
+            
+            row = {
+                "Case #": case_no, "Clinic": f_cl if f_cl else "-", "Doctor": f_doc if f_doc else "-", "Patient": patient if patient else "-",
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u*qty,
+                "Receipt Date": ("-" if is_33 else rd.strftime(dfmt)),
+                "Completed Date": cp.strftime(dfmt),
+                "Shipping Date": (shp.strftime(dfmt) if shp else "-"),
+                "Due Date": (due.strftime(dfmt) if due else "-"),
+                "Status": stt, "Notes": final_notes
+            }
+            try:
+                new_data = pd.concat([m_df, pd.DataFrame([row])], ignore_index=True)
+                conn.update(data=new_data)
+                st.success(f"{case_no} 저장 성공!")
+                time.sleep(1); reset_fields(); st.rerun()
+            except Exception as e: st.error(f"저장 오류: {e}")
+
+# --- [TAB 2: 정산] ---
+with t2:
+    st.subheader("💰 월별 정산 현황")
+    c_y, c_m = st.columns(2)
+    sel_year = c_y.selectbox("연도", range(date.today().year, date.today().year - 5, -1))
+    sel_month = c_m.selectbox("월", range(1, 13), index=date.today().month - 1)
+    
+    if not m_df.empty:
+        pdf = m_df.copy()
+        pdf['Qty'] = pd.to_numeric(pdf['Qty'], errors='coerce').fillna(0)
+        pdf['SD_dt'] = pd.to_datetime(pdf['Shipping Date'], errors='coerce')
+        m_dt = pdf[(pdf['SD_dt'].dt.year == sel_year) & (pdf['SD_dt'].dt.month == sel_month)]
+        
+        if not m_dt.empty:
+            disp_cols = ['Case #', 'Shipping Date', 'Clinic', 'Doctor', 'Patient', 'Qty', 'Status']
+            st.dataframe(m_dt[disp_cols], use_container_width=True, hide_index=True)
+            
+            pay_dt = m_dt[m_dt['Status'].str.lower() == 'normal']
+            total_qty = pay_dt['Qty'].sum()
+            extra_qty = max(0, total_qty - 320)
+            
+            m1, m2, m3 = st.columns(3)
+            m1.metric("총 수량", f"{int(total_qty)} ea")
+            m2.metric("Extra", f"{int(extra_qty)} ea")
+            m3.metric("정산 금액", f"${extra_qty * 19.505333:,.2f}")
+        else: st.info("데이터가 없습니다.")
 
 # --- [TAB 3: 검색] ---
 with t3:
-    st.markdown("### 🔍 케이스 검색")
-    sq = st.text_input("검색어 (번호/이름/병원)")
-    if sq and not main_df.empty:
-        res = main_df[main_df.apply(lambda r: sq.lower() in r.astype(str).str.lower().values, axis=1)]
-        st.dataframe(res.drop(columns=['dt_filter'], errors='ignore'), use_container_width=True, hide_index=True)
+    st.subheader("🔍 검색")
+    qs = st.text_input("검색어 입력 (환자, Case #, 병원 등)", key="search_bar")
+    if not m_df.empty:
+        if qs:
+            mask = m_df.apply(lambda row: row.astype(str).str.contains(qs, case=False).any(), axis=1)
+            f_df = m_df[mask]
+            st.dataframe(f_df, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(m_df.tail(20), use_container_width=True, hide_index=True)
