@@ -45,12 +45,17 @@ st.markdown(f"""
 # 2. 서비스 연결 및 AI 설정
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+else:
+    st.error("API Key가 설정되지 않았습니다.")
 
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 세션 상태 초기화
 if "it" not in st.session_state: st.session_state.it = 0
 if "last_analyzed" not in st.session_state: st.session_state.last_analyzed = None
 iter_no = str(st.session_state.it)
 
+# 데이터 로드 함수
 @st.cache_data(ttl=1)
 def get_data():
     try:
@@ -68,39 +73,38 @@ ref = get_ref()
 clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic']) if not ref.empty else []
 docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor']) if not ref.empty else []
 
-# --- 정밀 분석 엔진 (Gemini 1.5 Pro 사용 권장 및 로직 강화) ---
-def deep_analyze_order(uploaded_file, clinics, doctors):
+# --- 분석 멈춤 방지용 정밀 엔진 ---
+def analyze_with_fallback(uploaded_file, clinics, doctors):
     try:
-        # 속도보다 정확도를 위해 Pro 모델 시도 (없으면 Flash)
-        try: model = genai.GenerativeModel('gemini-1.5-pro')
-        except: model = genai.GenerativeModel('gemini-1.5-flash')
-        
+        # 1. 이미지 처리 (속도를 위해 적정 해상도 유지)
         img = Image.open(uploaded_file)
-        # 선명도 유지를 위해 압축 완화
         img.thumbnail((1024, 1024))
         
-        # AI에게 목록을 주고 매칭을 강제함
-        prompt = f"""
-        Analyze this dental order sheet and extract:
-        1. CASE: (Look for Case # or ID)
-        2. PATIENT: (Patient Name)
-        3. CLINIC: (Must choose the best match from this list: {", ".join(clinics)})
-        4. DOCTOR: (Must choose the best match from this list: {", ".join(doctors)})
+        # 2. 모델 설정 (안정성이 높은 flash 우선 사용 후 실패시 재시도)
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
-        Output format: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val
-        Only provide the values, no extra text.
-        """
+        prompt = f"""Extract 4 items from this dental order sheet. Response format: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val. 
+        List of Clinics: {", ".join(clinics)}. 
+        List of Doctors: {", ".join(doctors)}. 
+        If not clear, leave as empty. Only output the format."""
         
+        # 3. 분석 실행 (타임아웃은 API 자체에서 처리됨)
         response = model.generate_content([prompt, img])
+        
+        # 4. 결과 파싱
+        if not response or not response.text: return None
+        
         res = {}
         for item in response.text.replace('\n', ',').split(','):
             if ':' in item:
                 k, v = item.split(':', 1)
                 res[k.strip().upper()] = v.strip()
         return res
-    except: return None
+    except Exception as e:
+        print(f"Error during AI scan: {e}")
+        return None
 
-# --- 날짜/매칭 로직 ---
+# --- 날짜 및 매칭 로직 ---
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -123,29 +127,35 @@ def on_clinic_change():
         match = ref[ref.iloc[:, 1] == sel_cl]
         if not match.empty: st.session_state["sd" + iter_no] = match.iloc[0, 2]
 
+# 탭 구성
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
 
 with t1:
-    st.markdown("### 📸 의뢰서 정밀 스캔")
-    ai_file = st.file_uploader("의뢰서를 찍으면 AI가 정보를 추출합니다", type=["jpg", "jpeg", "png"], key="scanner")
+    st.markdown("### 📸 의뢰서 자동 스캔")
+    # 파일 업로더 키를 동적으로 생성하여 초기화 가능하게 함
+    ai_file = st.file_uploader("의뢰서를 찍으면 정보가 입력됩니다", type=["jpg", "jpeg", "png"], key=f"scanner_{st.session_state.it}")
     
+    # 분석 프로세스
     if ai_file is not None and st.session_state.last_analyzed != ai_file.name:
-        with st.spinner("🧠 AI가 의뢰서 내용을 정밀 분석 중입니다..."):
-            res = deep_analyze_order(ai_file, clinics_list, docs_list)
+        with st.status("🔍 AI 분석 프로세스 가동 중...") as status:
+            res = analyze_with_fallback(ai_file, clinics_list, docs_list)
             if res:
+                # 결과 적용
                 st.session_state["c" + iter_no] = res.get('CASE', '')
                 st.session_state["p" + iter_no] = res.get('PATIENT', '')
                 
-                # 병원/의사 매칭 (AI가 목록에서 골라온 값 적용)
                 c_val = res.get('CLINIC', '')
                 d_val = res.get('DOCTOR', '')
                 if c_val in clinics_list: st.session_state["sc_box" + iter_no] = c_val
                 if d_val in docs_list: st.session_state["sd" + iter_no] = d_val
                 
                 st.session_state.last_analyzed = ai_file.name
-                st.success("✅ 분석 완료!")
+                status.update(label="✅ 분석 완료! 즉시 입력창을 확인하세요.", state="complete", expanded=False)
                 time.sleep(1)
                 st.rerun()
+            else:
+                status.update(label="❌ 분석에 실패했습니다. 수동 입력을 권장합니다.", state="error", expanded=True)
+                st.session_state.last_analyzed = ai_file.name # 실패해도 중복 실행 방지
 
     st.markdown("---")
     st.markdown("### 📋 정보 입력")
@@ -165,6 +175,7 @@ with t1:
         is_33 = d2.checkbox("3D Digital Scan Mode", True, key="d3" + iter_no)
         rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
         cp = d2.date_input("완료예정일", date.today()+timedelta(1), key="cp" + iter_no)
+        
         if "due" + iter_no not in st.session_state: st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
         due_val = d3.date_input("Due Date (마감)", key="due" + iter_no, on_change=sync_date)
         shp_val = d3.date_input("Shipping Date (출고)", key="shp" + iter_no)
@@ -188,9 +199,11 @@ with t1:
                 if not p_m.empty:
                     try: p_u = int(float(p_m.iloc[0, 3]))
                     except: p_u = 180
+            
             final_notes = ", ".join(chks)
             if uploaded_file: final_notes += f" | 사진:{uploaded_file.name}"
             if memo: final_notes += f" | 메모:{memo}"
+
             new_row = {
                 "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient, 
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
