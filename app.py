@@ -7,7 +7,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# 1. 디자인 및 카메라 설정 (절대 고정)
+# 1. 디자인 절대 고정 (다크 네이비 테마)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -17,16 +17,8 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    /* 카메라 입력창 크기 대폭 확장 및 후면 카메라 최적화 */
-    [data-testid="stCameraInput"] {
-        width: 100% !important;
-    }
-    video {
-        border-radius: 10px;
-        width: 100% !important;
-        height: auto !important;
-        object-fit: cover;
-    }
+    [data-testid="stCameraInput"] { width: 100% !important; }
+    video { border-radius: 10px; width: 100% !important; height: auto !important; object-fit: cover; }
     
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
         color: #ffffff !important; font-weight: 600 !important;
@@ -92,9 +84,7 @@ def run_ai_analysis(img_file):
             end = text.rfind("}") + 1
             return json.loads(text[start:end])
         return None
-    except Exception as e:
-        st.error(f"AI Error: {e}")
-        return None
+    except: return None
 
 # 양방향 동기화
 def on_doctor_change():
@@ -118,21 +108,19 @@ with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    with st.expander("📸 의뢰서 촬영 및 AI 분석 (후면 카메라 우선)", expanded=True):
-        # camera_input은 모바일 환경에서 자동으로 후면 카메라 전환 옵션을 제공합니다.
-        cam_img = st.camera_input("의뢰서를 후면 카메라로 찍어주세요")
+    # AI 사진 분석 섹션
+    with st.expander("📸 의뢰서 촬영 및 AI 분석", expanded=True):
+        cam_img = st.camera_input("의뢰서를 찍어주세요 (셀카 시 전환 버튼 클릭)")
         if cam_img and st.button("✨ 사진 내용 즉시 분석"):
-            with st.spinner("AI 분석 중..."):
+            with st.spinner("분석 중..."):
                 res = run_ai_analysis(cam_img)
                 if res:
                     if res.get("case_no"): st.session_state["c" + iter_no] = str(res["case_no"])
                     if res.get("patient"): st.session_state["p" + iter_no] = str(res["patient"])
                     if res.get("clinic") in clinics_list: st.session_state["sc_box" + iter_no] = res["clinic"]
                     if res.get("doctor") in docs_list: st.session_state["sd" + iter_no] = res["doctor"]
-                    if res.get("arch") in ["Maxillary", "Mandibular"]: st.session_state["ar" + iter_no] = res["arch"]
-                    if res.get("material") in ["Thermo", "Dual", "Soft", "Hard"]: st.session_state["ma" + iter_no] = res["material"]
-                    st.success("데이터 반영 완료!")
-                    time.sleep(0.5)
+                    if res.get("arch"): st.session_state["ar" + iter_no] = res["arch"]
+                    if res.get("material"): st.session_state["ma" + iter_no] = res["material"]
                     st.rerun()
 
     st.markdown("### 📋 정보 확인")
@@ -144,7 +132,7 @@ with t1:
     sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=on_doctor_change)
     final_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc == "➕ 직접" else (sel_doc if sel_doc != "선택" else "")
 
-    with st.expander("생산 세부 설정", expanded=True):
+    with st.expander("⚙️ 생산 세부 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Maxillary","Mandibular"], horizontal=True, key="ar" + iter_no)
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key="ma" + iter_no)
@@ -156,6 +144,16 @@ with t1:
         shp_val = d3.date_input("출고일", key="shp" + iter_no)
         stt = d3.selectbox("상태", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
+    # 💡 체크리스트 및 사진 업로드 섹션 (부활)
+    with st.expander("📂 특이사항 및 사진 첨부", expanded=True):
+        col_ex1, col_ex2 = st.columns([0.6, 0.4])
+        chks = []
+        if not ref.empty and len(ref.columns) > 3:
+            chks_list = sorted(list(set([str(x) for x in ref.iloc[:,3:].values.flatten() if x and str(x)!='nan' and str(x)!='Price'])))
+            chks = col_ex1.multiselect("체크리스트 선택", chks_list, key="ck" + iter_no)
+        up_file = col_ex1.file_uploader("사진 파일 첨부", type=["jpg","png","jpeg"], key="fu" + iter_no)
+        memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
+
     if st.button("🚀 데이터 저장하기"):
         if not case_no: st.error("Case Number를 입력하세요.")
         else:
@@ -165,13 +163,25 @@ with t1:
                 if not match.empty:
                     try: p_u = int(float(match.iloc[0, 3]))
                     except: p_u = 180
-            new_row = {"Case #": case_no, "Clinic": final_cl, "Doctor": final_doc, "Patient": patient, "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty, "Receipt Date": rd.strftime('%Y-%m-%d'), "Completed Date": cp.strftime('%Y-%m-%d'), "Shipping Date": shp_val.strftime('%Y-%m-%d'), "Due Date": due_val.strftime('%Y-%m-%d'), "Status": stt}
+            
+            # 특이사항 정리
+            final_notes = ", ".join(chks)
+            if up_file: final_notes += f" | 파일:{up_file.name}"
+            if memo: final_notes += f" | 메모:{memo}"
+
+            new_row = {
+                "Case #": case_no, "Clinic": final_cl, "Doctor": final_doc, "Patient": patient, 
+                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
+                "Receipt Date": rd.strftime('%Y-%m-%d'), "Completed Date": cp.strftime('%Y-%m-%d'),
+                "Shipping Date": shp_val.strftime('%Y-%m-%d'), "Due Date": due_val.strftime('%Y-%m-%d'),
+                "Status": stt, "Notes": final_notes
+            }
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
             st.success("저장 완료!")
             st.session_state.it += 1
             st.rerun()
 
-# 📊 통계 및 🔍 검색 기능 (디자인/로직 그대로 유지)
+# 📊 통계 및 🔍 검색 (기존 로직 그대로 유지)
 with t2:
     st.markdown("### 💰 정산 및 실적")
     today = date.today()
