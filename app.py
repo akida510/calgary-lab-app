@@ -6,10 +6,9 @@ import google.generativeai as genai
 from PIL import Image
 import time
 
-# 1. 페이지 설정
+# 1. 페이지 설정 및 디자인
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
-# CSS 디자인
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -26,17 +25,21 @@ st.markdown("""
     </div>
     """, unsafe_allow_html=True)
 
-# 2. 데이터베이스 연결 (수정 불가능한 Secrets 우회 로직)
+# 2. 데이터베이스 연결 (충돌 방지 로직)
 @st.cache_resource(ttl=600)
 def get_db_connection():
     try:
-        # Secrets를 직접 수정하지 않고, 복사본을 만들어 수정한 뒤 연결에 사용
+        # Secrets 설정값을 딕셔너리로 복사
         conf = st.secrets["connections"]["gsheets"].to_dict()
+        
+        # private_key 내부의 \n 문자를 실제 줄바꿈으로 변경하여 가공
         if "private_key" in conf:
-            # \n 치환 및 앞뒤 공백 제거
             conf["private_key"] = conf["private_key"].replace("\\n", "\n").strip()
         
-        # 💡 수정한 설정값(conf)을 풀어서(**) 전달
+        # 💡 핵심: 딕셔너리에서 'type'을 제거한 뒤, st.connection의 첫 번째 인자로 넘겨 중복 방지
+        conn_type = conf.pop("type", "service_account")
+        
+        # 가공된 conf 딕셔너리를 사용하여 연결
         return st.connection("gsheets", type=GSheetsConnection, **conf)
     except Exception as e:
         st.error(f"❌ 데이터베이스 연결 실패: {e}")
@@ -59,20 +62,20 @@ else:
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# 세션 상태 관리
+# 세션 상태 관리 (입력 초기화용)
 if "it" not in st.session_state: st.session_state.it = 0
 it_key = str(st.session_state.it)
 
-# 4. 화면 탭 구성
-tab1, tab2, tab3 = st.tabs(["📝 신규 등록", "📊 실적 보기", "🔍 검색"])
+# 4. 화면 구성
+tab1, tab2, tab3 = st.tabs(["📝 신규 등록", "📊 실적 보기", "🔍 통합 검색"])
 
 with tab1:
-    st.subheader("📸 의뢰서 스캔")
-    scan_file = st.file_uploader("의뢰서 사진 업로드", type=["jpg", "jpeg", "png"], key=f"scan_{it_key}")
+    st.markdown("### 📸 의뢰서 스캔")
+    scan_file = st.file_uploader("이미지를 업로드하세요", type=["jpg", "png", "jpeg"], key=f"scan_{it_key}")
     
     if scan_file:
-        if st.button("✨ AI 정보 추출"):
-            with st.spinner("분석 중..."):
+        if st.button("✨ 정보 자동 추출"):
+            with st.spinner("AI 분석 중..."):
                 try:
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     img = Image.open(scan_file)
@@ -91,30 +94,31 @@ with tab1:
 
     st.divider()
     
-    # 입력 폼
+    # 입력 필드 레이아웃
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case Number", key="c" + it_key)
     patient = c1.text_input("환자명", key="p" + it_key)
-    sel_clinic = c2.selectbox("병원", ["선택"] + clinics + ["➕ 직접"], key="cl" + it_key)
-    sel_doctor = c3.selectbox("의사", ["선택"] + doctors + ["➕ 직접"], key="dr" + it_key)
+    sel_clinic = c2.selectbox("치과 선택", ["선택"] + clinics + ["➕ 직접 입력"], key="cl" + it_key)
+    sel_doctor = c3.selectbox("의사 선택", ["선택"] + doctors + ["➕ 직접 입력"], key="dr" + it_key)
 
-    with st.expander("생산 상세 및 날짜 설정", expanded=True):
+    with st.expander("생산 정보 및 날짜 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
-        mat = d1.selectbox("재질", ["Thermo","Dual","Soft","Hard"], key="m" + it_key)
+        mat = d1.selectbox("재질 (Material)", ["Thermo","Dual","Soft","Hard"], key="m" + it_key)
         rd = d2.date_input("접수일", date.today(), key="rd" + it_key)
-        due = d3.date_input("마감일", date.today()+timedelta(7), key="du" + it_key)
-        shp = d3.date_input("출고일", due-timedelta(2), key="sh" + it_key)
+        due = d3.date_input("마감일 (Due)", date.today()+timedelta(7), key="du" + it_key)
+        # 마감일 기준 2일 전 자동 출고일 계산
+        shp = d3.date_input("출고일 (Shipping)", due-timedelta(2), key="sh" + it_key)
 
-    with st.expander("📂 추가 메모 및 사진", expanded=True):
-        col_i, col_m = st.columns([0.6, 0.4])
-        # 사진 업로드 버튼 복구
-        st.file_uploader("참고용 사진", type=["jpg", "png"], key=f"refimg_{it_key}")
-        memo = col_m.text_area("메모", key="memo" + it_key, height=120)
+    with st.expander("📂 추가 메모 및 사진 업로드", expanded=True):
+        col_img, col_memo = st.columns([0.6, 0.4])
+        # [복구] 사진 업로드 버튼
+        st.file_uploader("참고 사진 첨부", type=["jpg", "png"], key=f"ref_{it_key}")
+        memo = col_memo.text_area("메모", key="memo" + it_key, height=130)
 
-    if st.button("🚀 데이터 저장"):
-        if not case_no: st.warning("Case Number를 입력하세요.")
+    if st.button("🚀 데이터 저장하기"):
+        if not case_no: st.warning("Case Number를 확인하세요.")
         else:
-            st.success(f"{case_no} 저장 완료!")
+            st.success(f"{case_no} 데이터가 성공적으로 처리되었습니다.")
             st.session_state.it += 1
             st.rerun()
 
@@ -122,6 +126,6 @@ with tab2:
     st.dataframe(main_df.tail(20), use_container_width=True)
 
 with tab3:
-    q = st.text_input("검색어 (이름 또는 번호)")
+    q = st.text_input("검색 (환자명 또는 번호)")
     if q:
         st.dataframe(main_df[main_df.apply(lambda row: q in row.astype(str).values, axis=1)], use_container_width=True)
