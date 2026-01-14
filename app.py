@@ -8,7 +8,7 @@ from PIL import Image
 import json
 import io
 
-# 1. 디자인 절대 고정 (기존 다크 테마 및 카메라 뷰 싱크 유지)
+# 1. 디자인 절대 고정 (다크 테마 유지)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -18,11 +18,15 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    [data-testid="stCameraInput"] { width: 100% !important; max-width: 450px !important; margin: 0 auto; }
-    [data-testid="stCameraInput"] video {
-        aspect-ratio: auto !important; object-fit: contain !important;
-        border-radius: 10px; border: 2px solid #4c6ef5; background-color: #000;
+    
+    /* 기존 카메라 입력창 스타일 제거 후 버튼 스타일 강조 */
+    .stFileUploader section {
+        background-color: #1a1c24 !important;
+        border: 2px dashed #4c6ef5 !important;
+        border-radius: 10px !important;
+        padding: 20px !important;
     }
+    
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
         color: #ffffff !important; font-weight: 600 !important;
     }
@@ -36,6 +40,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# 상단 헤더 (고정)
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;"> SKYCAD Dental Lab NIGHT GUARD Manager </div>
@@ -45,7 +50,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# AI 설정
+# AI 및 GSheets 설정
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -53,7 +58,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
-# 데이터 로드
 @st.cache_data(ttl=1)
 def get_data():
     try:
@@ -69,57 +73,47 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
-# 🚀 고속 AI 분석 로직 (리사이징 적용)
 def run_ai_analysis(img_file):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
         img = Image.open(img_file)
+        img.thumbnail((1000, 1000)) # 분석 효율을 위해 약간 리사이징
         
-        # 1. 이미지 리사이징 (속도 향상의 핵심: 가로 800px로 압축)
-        img.thumbnail((800, 800))
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='JPEG', quality=85)
-        optimized_img = Image.open(img_byte_arr)
-
-        # 2. 초간결 프롬프트
         prompt = "Extract to JSON: {case_no, patient, clinic, doctor, arch, material}"
-        
-        response = model.generate_content([prompt, optimized_img])
+        response = model.generate_content([prompt, img])
         text = response.text.strip()
-        
-        # JSON 파싱 보강
         if "{" in text:
             start = text.find("{")
             end = text.rfind("}") + 1
             return json.loads(text[start:end])
         return None
-    except Exception as e:
-        return None
+    except: return None
 
-# 메인 레이아웃
+# 메인 탭
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
 
 with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    with st.expander("📸 의뢰서 촬영 및 AI 즉시 분석", expanded=True):
-        cam_img = st.camera_input("의뢰서를 찍어주세요")
-        if cam_img and st.button("✨ 분석 시작 (Fast)"):
-            with st.spinner("데이터 추출 중..."):
+    with st.expander("📸 의뢰서 촬영 및 AI 분석", expanded=True):
+        st.info("💡 아래 버튼을 누르면 '카메라'가 전체 화면으로 열립니다.")
+        # 핵심 변경: camera_input 대신 전용 촬영 기능을 가진 file_uploader 사용
+        # 모바일 환경에서 label을 클릭하면 바로 카메라 앱이 구동됩니다.
+        cam_img = st.file_uploader("사진 찍기 (전체 화면 카메라)", type=["jpg","jpeg","png"], key="full_cam")
+        
+        if cam_img and st.button("✨ 촬영된 사진 분석 시작"):
+            with st.spinner("AI가 의뢰서를 정밀 분석 중입니다..."):
                 res = run_ai_analysis(cam_img)
                 if res:
                     if res.get("case_no"): st.session_state["c" + iter_no] = str(res["case_no"])
                     if res.get("patient"): st.session_state["p" + iter_no] = str(res["patient"])
-                    # 병원/의사는 리스트에 있는 경우만 매칭
                     if res.get("clinic") in clinics_list: st.session_state["sc_box" + iter_no] = res["clinic"]
                     if res.get("doctor") in docs_list: st.session_state["sd" + iter_no] = res["doctor"]
                     if res.get("arch"): st.session_state["ar" + iter_no] = res["arch"]
                     if res.get("material"): st.session_state["ma" + iter_no] = res["material"]
-                    st.success("분석 완료!")
+                    st.success("데이터 반영 완료!")
                     st.rerun()
-                else:
-                    st.error("분석에 실패했습니다. 다시 촬영하거나 직접 입력해주세요.")
 
     st.markdown("### 📋 정보 확인")
     c1, c2, c3 = st.columns(3)
@@ -174,10 +168,9 @@ with t1:
             st.session_state.it += 1
             st.rerun()
 
-# 📊 통계/검색 유지
+# [정산/검색 탭 로직은 그대로 유지]
 with t2:
     st.markdown("### 💰 정산 및 실적")
-    # (기존 통계 코드 동일)
     today = date.today()
     sy, sm = st.columns(2)
     s_y = sy.selectbox("연도", range(today.year, today.year - 5, -1))
