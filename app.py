@@ -7,7 +7,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# 1. 디자인 절대 고정 및 카메라 세로형 강제 CSS
+# 1. 디자인 절대 고정 및 카메라 미리보기-결과물 동기화 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -18,17 +18,19 @@ st.markdown("""
         margin-bottom: 25px; border: 1px solid #30363d;
     }
     
-    /* 🚨 카메라 입력창 세로형 강제 고정 (너비를 줄이고 높이를 확보) */
+    /* 🚨 보이는 것과 찍히는 것을 일치시키는 핵심 설정 */
     [data-testid="stCameraInput"] {
         width: 100% !important;
-        max-width: 400px !important; /* 가로폭을 제한하여 세로 느낌 강조 */
+        max-width: 450px !important;
         margin: 0 auto;
     }
     [data-testid="stCameraInput"] video {
-        aspect-ratio: 9 / 16 !important; /* 스마트폰 세로 비율 */
-        object-fit: cover !important;
-        border-radius: 15px;
+        /* 화면에 보이는 미리보기 비율을 실제 센서 비율과 일치시킴 */
+        aspect-ratio: auto !important; 
+        object-fit: contain !important; /* 잘림 없이 전체가 보이도록 설정 */
+        border-radius: 10px;
         border: 2px solid #4c6ef5;
+        background-color: #000;
     }
     
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
@@ -58,7 +60,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# AI 설정
+# AI 설정 (속도 최적화 프롬프트)
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -82,10 +84,12 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
+# 분석 속도를 위한 초간결 프롬프트
 def run_ai_analysis(img):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
-        prompt = "Analyze dental lab order. Output JSON: {\"case_no\":\"\", \"patient\":\"\", \"clinic\":\"\", \"doctor\":\"\", \"arch\":\"Maxillary or Mandibular\", \"material\":\"Thermo or Dual or Soft or Hard\"}"
+        # 불필요한 수식어를 빼서 AI의 추론 시간을 단축
+        prompt = "Extract to JSON: case_no, patient, clinic, doctor, arch(Maxillary/Mandibular), material(Thermo/Dual/Soft/Hard)"
         response = model.generate_content([prompt, img])
         text = response.text.strip()
         if "{" in text:
@@ -102,11 +106,11 @@ with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    # 📸 세로형 카메라 (비율 교정 완료)
-    with st.expander("📸 의뢰서 세로형 촬영 및 AI 분석", expanded=True):
-        cam_img = st.camera_input("의뢰서를 세로 방향으로 촬영하세요")
-        if cam_img and st.button("✨ 세로 사진 분석 시작"):
-            with st.spinner("AI 분석 중..."):
+    with st.expander("📸 의뢰서 촬영 및 AI 분석", expanded=True):
+        # 💡 "세로" 문구 삭제, 보이는 그대로 찍히도록 설정됨
+        cam_img = st.camera_input("의뢰서를 프레임에 맞춰 찍어주세요")
+        if cam_img and st.button("✨ 즉시 분석"):
+            with st.spinner("AI 분석 중..."): # 보통 3~5초 소요가 정상입니다.
                 img = Image.open(cam_img)
                 res = run_ai_analysis(img)
                 if res:
@@ -139,7 +143,6 @@ with t1:
         shp_val = d3.date_input("출고일", key="shp" + iter_no)
         stt = d3.selectbox("상태", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
-    # 📂 체크리스트 및 사진 업로드 (누락 없음)
     with st.expander("📂 특이사항 및 사진 첨부", expanded=True):
         col_ex1, col_ex2 = st.columns([0.6, 0.4])
         chks = []
@@ -172,7 +175,7 @@ with t1:
             st.session_state.it += 1
             st.rerun()
 
-# [정산/검색 탭 로직은 동일하게 유지]
+# [정산/검색 탭 로직은 기존 유지]
 with t2:
     st.markdown("### 💰 정산 및 실적")
     today = date.today()
