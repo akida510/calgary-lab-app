@@ -64,6 +64,42 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
+# 데이터 로드
+@st.cache_data(ttl=1)
+def get_data():
+    try:
+        df = conn.read(ttl=0).astype(str)
+        return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
+    except: return pd.DataFrame()
+
+@st.cache_data(ttl=600)
+def get_ref():
+    try:
+        return conn.read(worksheet="Reference", ttl=600).astype(str)
+    except: return pd.DataFrame()
+
+main_df = get_data()
+ref = get_ref()
+
+# 💡 양방향 자동 매칭 콜백 함수
+def on_doctor_change():
+    sel_doc = st.session_state["sd" + iter_no]
+    if sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
+        match = ref[ref.iloc[:, 2] == sel_doc]
+        if not match.empty:
+            st.session_state["sc_box" + iter_no] = match.iloc[0, 1]
+
+def on_clinic_change():
+    sel_cl = st.session_state["sc_box" + iter_no]
+    if sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
+        match = ref[ref.iloc[:, 1] == sel_cl]
+        if not match.empty:
+            st.session_state["sd" + iter_no] = match.iloc[0, 2]
+
+# 세션 초기화 로직
+if "sd" + iter_no not in st.session_state: st.session_state["sd" + iter_no] = "선택"
+if "sc_box" + iter_no not in st.session_state: st.session_state["sc_box" + iter_no] = "선택"
+
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -83,37 +119,6 @@ def reset_all():
     st.session_state.it += 1
     st.cache_data.clear()
 
-@st.cache_data(ttl=1)
-def get_data():
-    try:
-        df = conn.read(ttl=0).astype(str)
-        return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
-    except: return pd.DataFrame()
-
-@st.cache_data(ttl=600)
-def get_ref():
-    try:
-        return conn.read(worksheet="Reference", ttl=600).astype(str)
-    except: return pd.DataFrame()
-
-main_df = get_data()
-ref = get_ref()
-
-# 💡 양방향 자동 매칭 로직 복구
-def update_from_doctor():
-    selected_doctor = st.session_state["sd" + iter_no]
-    if selected_doctor not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 2] == selected_doctor]
-        if not match.empty:
-            st.session_state["sc_box" + iter_no] = match.iloc[0, 1]
-
-def update_from_clinic():
-    selected_clinic = st.session_state["sc_box" + iter_no]
-    if selected_clinic not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 1] == selected_clinic]
-        if not match.empty:
-            st.session_state["sd" + iter_no] = match.iloc[0, 2]
-
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
 
 with t1:
@@ -125,15 +130,13 @@ with t1:
     case_no = c1.text_input("Case Number", key="c" + iter_no)
     patient = c1.text_input("환자명 (Patient)", key="p" + iter_no)
     
-    # 의사 선택 (on_change 추가)
-    if "sd" + iter_no not in st.session_state: st.session_state["sd" + iter_no] = "선택"
-    sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=update_from_doctor)
-    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else (sel_doc if sel_doc != "선택" else "")
-
-    # 병원 선택 (on_change 추가)
-    if "sc_box" + iter_no not in st.session_state: st.session_state["sc_box" + iter_no] = "선택"
-    sel_cl = c2.selectbox("병원 (Clinic)", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box" + iter_no, on_change=update_from_clinic)
+    # 병원 선택 (먼저 배치하여 병원 선택 시 의사가 바뀌는 것 확인 용이)
+    sel_cl = c2.selectbox("병원 (Clinic)", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box" + iter_no, on_change=on_clinic_change)
     f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else "")
+
+    # 의사 선택
+    sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=on_doctor_change)
+    f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else (sel_doc if sel_doc != "선택" else "")
 
     with st.expander("생산 세부 설정 (Production Details)", expanded=True):
         d1, d2, d3 = st.columns(3)
@@ -157,7 +160,6 @@ with t1:
         memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
 
     if st.button("🚀 데이터 저장하기"):
-        # 💡 의사명 체크 해제: Case Number만 있으면 저장 가능
         if not case_no: 
             st.error("Case Number를 입력해주세요.")
         else:
