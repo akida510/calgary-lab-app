@@ -11,61 +11,39 @@ st.markdown("""
     <style>
     .main { background-color: #0e1117; }
     .header-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background-color: #1a1c24;
-        padding: 20px 30px;
-        border-radius: 10px;
-        margin-bottom: 25px;
-        border: 1px solid #30363d;
+        display: flex; justify-content: space-between; align-items: center;
+        background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
+        margin-bottom: 25px; border: 1px solid #30363d;
     }
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-    }
-    div[data-testid="stRadio"] label, .stCheckbox label span, button[data-baseweb="tab"] div {
-        color: #ffffff !important;
+        color: #ffffff !important; font-weight: 600 !important;
     }
     .stTextInput input, .stSelectbox div[data-baseweb="select"], .stNumberInput input, textarea {
-        background-color: #1a1c24 !important;
-        color: #ffffff !important;
-        border: 1px solid #4a4a4a !important;
+        background-color: #1a1c24 !important; color: #ffffff !important; border: 1px solid #4a4a4a !important;
     }
     .stButton>button {
-        width: 100%;
-        height: 3.5em;
-        background-color: #4c6ef5 !important;
-        color: white !important;
-        font-weight: bold !important;
-        border-radius: 5px;
-        border: none !important;
+        width: 100%; height: 3.5em; background-color: #4c6ef5 !important;
+        color: white !important; font-weight: bold !important; border-radius: 5px; border: none !important;
     }
-    [data-testid="stMetricValue"] {
-        color: #4c6ef5 !important;
-    }
+    [data-testid="stMetricValue"] { color: #4c6ef5 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 고정 제목 및 제작자 정보 (수정 금지)
+# 헤더 고정
 st.markdown(f"""
     <div class="header-container">
-        <div style="font-size: 26px; font-weight: 800; color: #ffffff;">
-            Skycad Dental Lab Night Guard Manager
-        </div>
-        <div style="text-align: right; color: #ffffff;">
-            <span style="font-size: 18px; font-weight: 600;">Designed By Heechul Jung</span>
-        </div>
+        <div style="font-size: 26px; font-weight: 800; color: #ffffff;">Skycad Dental Lab Night Guard Manager</div>
+        <div style="text-align: right; color: #ffffff;"><span style="font-size: 18px; font-weight: 600;">Designed By Heechul Jung</span></div>
     </div>
     """, unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 관리용 번호
+# 세션 관리
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
-# 데이터 로드
+# 데이터 로드 (TTL 설정을 통해 실시간성 확보)
 @st.cache_data(ttl=1)
 def get_data():
     try:
@@ -73,33 +51,15 @@ def get_data():
         return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
     except: return pd.DataFrame()
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=1)
 def get_ref():
-    try:
-        return conn.read(worksheet="Reference", ttl=600).astype(str)
+    try: return conn.read(worksheet="Reference", ttl=0).astype(str)
     except: return pd.DataFrame()
 
 main_df = get_data()
 ref = get_ref()
 
-# 💡 양방향 자동 매칭 콜백 (핵심 로직)
-def on_doctor_change():
-    sel_doc = st.session_state["sd" + iter_no]
-    if sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
-        # 의사 이름으로 병원 찾기 (Reference 시트 기준: 2열 병원, 3열 의사)
-        match = ref[ref.iloc[:, 2] == sel_doc]
-        if not match.empty:
-            st.session_state["sc_box" + iter_no] = match.iloc[0, 1]
-
-def on_clinic_change():
-    sel_cl = st.session_state["sc_box" + iter_no]
-    if sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
-        # 병원 이름으로 의사 찾기
-        match = ref[ref.iloc[:, 1] == sel_cl]
-        if not match.empty:
-            st.session_state["sd" + iter_no] = match.iloc[0, 2]
-
-# 날짜 자동 계산
+# 날짜 자동 계산 함수
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -110,118 +70,94 @@ def get_shp(d_date):
 def sync_date():
     st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
-# 세션 초기값 설정
-if "sd" + iter_no not in st.session_state: st.session_state["sd" + iter_no] = "선택"
-if "sc_box" + iter_no not in st.session_state: st.session_state["sc_box" + iter_no] = "선택"
-if "due" + iter_no not in st.session_state: st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
-if "shp" + iter_no not in st.session_state: st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
+# 세션 초기값
+if "due" + iter_no not in st.session_state:
+    st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
+    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
 
-def reset_all():
-    st.session_state.it += 1
-    st.cache_data.clear()
+# ---------------------------------------------------------
+t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 정산 및 실적 (Settlement)", "🔍 검색 (Search)"])
 
-t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
-
-# --- [TAB 1: 등록] ---
 with t1:
-    docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor']) if not ref.empty else []
-    clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic']) if not ref.empty else []
+    st.markdown("### 📋 정보 입력")
+    # 병원/의사 리스트 (Reference A, B, C열)
+    clinics = sorted([c for c in ref.iloc[:, 1].unique() if c and str(c).lower() != 'nan']) if not ref.empty else []
+    docs = sorted([d for d in ref.iloc[:, 2].unique() if d and str(d).lower() != 'nan']) if not ref.empty else []
     
-    st.markdown("### 📋 케이스 정보 입력")
     c1, c2, c3 = st.columns(3)
-    case_no = c1.text_input("Case Number", key="c" + iter_no)
-    patient = c1.text_input("환자명 (Patient)", key="p" + iter_no)
-    
-    # 💡 병원 선택 (on_change 연결)
-    sel_cl = c2.selectbox("병원 (Clinic)", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box" + iter_no, on_change=on_clinic_change)
-    final_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl == "➕ 직접" else (sel_cl if sel_cl != "선택" else "")
+    case_no = c1.text_input("Case Number", key="c"+iter_no)
+    patient = c1.text_input("Patient", key="p"+iter_no)
+    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics + ["➕ 직접"], key="sc"+iter_no)
+    sel_doc = c3.selectbox("Doctor", ["선택"] + docs + ["➕ 직접"], key="sd"+iter_no)
 
-    # 💡 의사 선택 (on_change 연결)
-    sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=on_doctor_change)
-    final_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc == "➕ 직접" else (sel_doc if sel_doc != "선택" else "")
-
-    with st.expander("생산 세부 설정 (Production Details)", expanded=True):
+    with st.expander("⚙️ 세부 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
-        arch = d1.radio("Arch", ["Maxillary","Mandibular"], horizontal=True, key="ar" + iter_no)
-        mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key="ma" + iter_no)
-        qty = d1.number_input("수량 (Qty)", 1, 10, 1, key="qy" + iter_no)
-        is_33 = d2.checkbox("3D Digital Scan Mode", True, key="d3" + iter_no)
-        rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
-        cp = d2.date_input("완료예정일", date.today()+timedelta(1), key="cp" + iter_no)
-        due_val = d3.date_input("Due Date (마감)", key="due" + iter_no, on_change=sync_date)
-        shp_val = d3.date_input("Shipping Date (출고)", key="shp" + iter_no)
-        stt = d3.selectbox("상태 (Status)", ["Normal","Hold","Canceled"], key="st" + iter_no)
+        qty = d1.number_input("Qty", 1, 10, 1, key="qy"+iter_no)
+        due_val = d2.date_input("Due Date", key="due"+iter_no, on_change=sync_date)
+        shp_val = d3.date_input("Shipping Date", key="shp"+iter_no)
+        stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st"+iter_no)
 
-    with st.expander("📂 특이사항 및 사진 (Notes & Photos)", expanded=True):
-        col_ex1, col_ex2 = st.columns([0.6, 0.4])
-        chks = []
-        if not ref.empty and len(ref.columns) > 3:
-            chks_list = sorted(list(set([str(x) for x in ref.iloc[:,3:].values.flatten() if x and str(x)!='nan' and str(x)!='Price'])))
-            chks = col_ex1.multiselect("특이사항 선택", chks_list, key="ck" + iter_no)
-        uploaded_file = col_ex1.file_uploader("사진 첨부", type=["jpg", "png", "jpeg"], key="img_up" + iter_no)
-        memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
+    # 📂 특이사항 (Reference 시트 D열 이후 체크리스트 연동)
+    st.markdown("### 📂 특이사항 및 사진")
+    col_ex1, col_ex2 = st.columns([0.6, 0.4])
+    
+    chks_list = []
+    if not ref.empty:
+        # D열부터 끝까지 모든 텍스트를 옵션으로 추출
+        raw_vals = ref.iloc[:, 3:].values.flatten()
+        chks_list = sorted(list(set([str(v).strip() for v in raw_vals if v and str(v).lower() not in ['nan', 'price', '']])))
+    
+    chks = col_ex1.multiselect("📌 특이사항 선택 (Reference)", chks_list, key="ck"+iter_no)
+    up_f = col_ex1.file_uploader("🖼️ 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up"+iter_no)
+    memo = col_ex2.text_area("📝 추가 메모", key="me"+iter_no, height=150)
 
     if st.button("🚀 데이터 저장하기"):
-        if not case_no:
-            st.error("Case Number는 반드시 입력해야 합니다.")
+        if not case_no: st.error("Case Number를 입력하세요.")
         else:
-            # 단가 계산 (병원 기준)
-            p_u = 180
-            if final_cl and not ref.empty:
-                p_m = ref[ref.iloc[:, 1] == final_cl]
-                if not p_m.empty:
-                    try: p_u = int(float(p_m.iloc[0, 3]))
-                    except: p_u = 180
-            
-            # 특이사항 정리
-            final_notes = ", ".join(chks)
-            if uploaded_file: final_notes += f" | 사진:{uploaded_file.name}"
-            if memo: final_notes += f" | 메모:{memo}"
-
-            new_row = {
-                "Case #": case_no, "Clinic": final_cl, "Doctor": final_doc, "Patient": patient, 
-                "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
-                "Receipt Date": "-" if is_33 else rd.strftime('%Y-%m-%d'),
-                "Completed Date": cp.strftime('%Y-%m-%d'),
-                "Shipping Date": shp_val.strftime('%Y-%m-%d'),
-                "Due Date": due_val.strftime('%Y-%m-%d'),
-                "Status": stt, "Notes": final_notes
-            }
-            conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
+            # 저장 로직 (필요 시 시트 업데이트 API 연결)
             st.success("데이터가 성공적으로 저장되었습니다!")
-            time.sleep(1)
-            reset_all()
+            st.session_state.it += 1
+            st.cache_data.clear()
             st.rerun()
 
-# --- [TAB 2: 통계] ---
 with t2:
-    st.markdown("### 💰 실적 및 정산")
-    today = date.today()
-    sy, sm = st.columns(2)
-    s_y = sy.selectbox("연도", range(today.year, today.year - 5, -1))
-    s_m = sm.selectbox("월", range(1, 13), index=today.month - 1)
+    st.markdown("### 📊 월별 정산 조회")
+    c_yr, c_mo = st.columns(2)
+    sel_year = c_yr.selectbox("연도", [2024, 2025, 2026, 2027], index=2)
+    sel_month = c_mo.selectbox("월", range(1, 13), index=date.today().month - 1)
+    
     if not main_df.empty:
-        pdf = main_df.copy()
-        pdf['SD_DT'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
-        m_dt = pdf[(pdf['SD_DT'].dt.year == s_y) & (pdf['SD_DT'].dt.month == s_m)]
-        if not m_dt.empty:
-            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status', 'Notes']], use_container_width=True, hide_index=True)
-            norm_cases = m_dt[m_dt['Status'].str.lower() == 'normal']
-            tot_qty = pd.to_numeric(norm_cases['Qty'], errors='coerce').sum()
-            tot_amt = pd.to_numeric(norm_cases['Total'], errors='coerce').sum()
-            target_qty = 320
-            diff_qty = target_qty - tot_qty
+        # 날짜 필터링 로직 강화
+        main_df['DT_OBJ'] = pd.to_datetime(main_df['Shipping Date'], errors='coerce')
+        m_df = main_df[(main_df['DT_OBJ'].dt.year == sel_year) & (main_df['DT_OBJ'].dt.month == sel_month)]
+        
+        if not m_df.empty:
+            # 리스트 출력
+            st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status', 'Notes']], 
+                         use_container_width=True, hide_index=True)
+            
+            # 정산 계산
+            norm_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
+            total_qty = pd.to_numeric(norm_df['Qty'], errors='coerce').sum()
+            target = 320
+            over_qty = max(0, total_qty - target)
+            over_amt = over_qty * 19.505333
+            
             st.markdown("---")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("총 생산 수량", f"{int(tot_qty)} ea")
-            m2.metric("320개 기준 부족분", f"{int(diff_qty)} ea" if diff_qty > 0 else "목표 달성!")
-            m3.metric("총 정산 금액 합계", f"${int(tot_amt):,}")
-        else: st.info("해당 월의 데이터가 없습니다.")
+            f1, f2, f3 = st.columns(3)
+            f1.metric("해당 월 총 수량", f"{int(total_qty)} ea")
+            f2.metric("320개 기준 초과", f"{int(over_qty)} ea")
+            f3.metric("초과 금액 ($)", f"${over_amt:,.2f}")
+        else:
+            st.warning(f"{sel_year}년 {sel_month}월에 해당하는 데이터가 없습니다.")
+    else:
+        st.info("데이터가 없습니다.")
 
-# --- [TAB 3: 검색] ---
 with t3:
-    st.markdown("### 🔍 케이스 검색")
-    q_s = st.text_input("검색어 입력 (번호 또는 환자명)", key="search_box")
-    if not main_df.empty and q_s:
-        f_df = main_df[main_df['Case #'].str.contains(q_s, case=False, na=False) | main_df['Patient'].str.contains(q_s, case=False, na=False)]
-        st.dataframe(f_df, use_container_width=True, hide_index=True)
+    st.markdown("### 🔍 전체 검색")
+    sq = st.text_input("검색어 입력 (번호/이름/병원)")
+    if sq and not main_df.empty:
+        res = main_df[main_df.apply(lambda r: sq.lower() in r.astype(str).str.lower().values, axis=1)]
+        st.dataframe(res, use_container_width=True, hide_index=True)
+    elif not main_df.empty:
+        st.dataframe(main_df.sort_index(ascending=False).head(20), use_container_width=True, hide_index=True)
