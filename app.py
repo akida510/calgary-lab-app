@@ -50,7 +50,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 상단 헤더
+# 💡 상단 고정 제목
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;">
@@ -68,7 +68,6 @@ if "GOOGLE_API_KEY" in st.secrets:
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 세션 초기화 (반복 방지용)
 if "it" not in st.session_state: st.session_state.it = 0
 if "last_analyzed" not in st.session_state: st.session_state.last_analyzed = None
 iter_no = str(st.session_state.it)
@@ -97,6 +96,9 @@ def get_shp(d_date):
         if t.weekday() < 5: c += 1
     return t
 
+def sync_date():
+    st.session_state["shp" + iter_no] = get_shp(st.session_state["due" + iter_no])
+
 def on_doctor_change():
     sel_doc = st.session_state.get("sd" + iter_no)
     if sel_doc and sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
@@ -114,14 +116,11 @@ def fast_ai_scan(uploaded_file):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
         img = Image.open(uploaded_file)
-        # 용량을 확 줄여서 속도 확보
         img.thumbnail((600, 600)) 
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=70)
-        
-        prompt = "Scan this dental order. Output ONLY as: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val. No prose."
+        prompt = "Scan dental order. Format ONLY as: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val."
         response = model.generate_content([prompt, Image.open(buf)])
-        
         res = {}
         for item in response.text.replace('\n', ',').split(','):
             if ':' in item:
@@ -130,20 +129,18 @@ def fast_ai_scan(uploaded_file):
         return res
     except: return None
 
-# 탭 구성
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
 
 with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic']) if not ref.empty else []
 
-    # 📸 자동 분석 섹션
-    st.markdown("### 📸 의뢰서 스캔")
-    ai_file = st.file_uploader("사진 촬영 시 자동 입력됩니다", type=["jpg", "jpeg", "png"], key="scanner")
+    # 📸 자동 분석용 업로드 (상단)
+    st.markdown("### 📸 의뢰서 자동 스캔")
+    ai_file = st.file_uploader("사진 촬영 시 정보가 자동 입력됩니다", type=["jpg", "jpeg", "png"], key="scanner")
     
-    # 분석 로직 (중복 실행 방지 및 즉시 실행)
     if ai_file is not None and st.session_state.last_analyzed != ai_file.name:
-        with st.spinner("⚡ AI 분석 중..."):
+        with st.spinner("⚡ 분석 중..."):
             res = fast_ai_scan(ai_file)
             if res:
                 st.session_state["c" + iter_no] = res.get('CASE', '')
@@ -151,49 +148,44 @@ with t1:
                 c_val = res.get('CLINIC', '')
                 if c_val in clinics_list:
                     st.session_state["sc_box" + iter_no] = c_val
-                    # 의사까지 매칭
                     m = ref[ref.iloc[:, 1] == c_val]
                     if not m.empty: st.session_state["sd" + iter_no] = m.iloc[0, 2]
-                
                 st.session_state.last_analyzed = ai_file.name
                 st.rerun()
 
     st.markdown("---")
-    st.markdown("### 📋 정보 확인")
+    st.markdown("### 📋 정보 입력")
     c1, c2, c3 = st.columns(3)
-    
     case_no = c1.text_input("Case Number", key="c" + iter_no)
     patient = c1.text_input("환자명 (Patient)", key="p" + iter_no)
-    
     sel_cl = c2.selectbox("병원 (Clinic)", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box" + iter_no, on_change=on_clinic_change)
     f_cl = c2.text_input("직접입력(병원)", key="tc" + iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else "")
-
     sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=on_doctor_change)
     f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else (sel_doc if sel_doc != "선택" else "")
 
-    # 생산 세부 설정 (날짜 로직 복구 완료)
-    with st.expander("⚙️ 생산 세부 설정 (Production Details)", expanded=True):
+    with st.expander("생산 세부 설정 (Production Details)", expanded=True):
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Maxillary","Mandibular"], horizontal=True, key="ar" + iter_no)
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key="ma" + iter_no)
         qty = d1.number_input("수량 (Qty)", 1, 10, 1, key="qy" + iter_no)
-        
         is_33 = d2.checkbox("3D Digital Scan Mode", True, key="d3" + iter_no)
         rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
         cp = d2.date_input("완료예정일", date.today()+timedelta(1), key="cp" + iter_no)
-        
-        # 마감일 - 출고일 동기화
         if "due" + iter_no not in st.session_state: st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
-        due_val = d3.date_input("Due Date (마감)", key="due" + iter_no)
-        shp_val = d3.date_input("Shipping Date (출고)", get_shp(due_val), key="shp" + iter_no)
+        due_val = d3.date_input("Due Date (마감)", key="due" + iter_no, on_change=sync_date)
+        shp_val = d3.date_input("Shipping Date (출고)", key="shp" + iter_no)
         stt = d3.selectbox("상태 (Status)", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
-    with st.expander("📂 특이사항 및 메모 (Notes)", expanded=True):
+    # 📂 [복구완료] 하단 특이사항 및 사진 첨부 섹션
+    with st.expander("📂 특이사항 및 사진 (Notes & Photos)", expanded=True):
         col_ex1, col_ex2 = st.columns([0.6, 0.4])
         chks = []
         if not ref.empty and len(ref.columns) > 3:
             chks_list = sorted(list(set([str(x) for x in ref.iloc[:,3:].values.flatten() if x and str(x)!='nan' and str(x)!='Price'])))
             chks = col_ex1.multiselect("특이사항 선택", chks_list, key="ck" + iter_no)
+        
+        # 원래 있던 사진 업로드 창
+        uploaded_file = col_ex1.file_uploader("참고 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up" + iter_no)
         memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
 
     if st.button("🚀 데이터 저장하기"):
@@ -206,6 +198,10 @@ with t1:
                     try: p_u = int(float(p_m.iloc[0, 3]))
                     except: p_u = 180
             
+            final_notes = ", ".join(chks)
+            if uploaded_file: final_notes += f" | 사진:{uploaded_file.name}"
+            if memo: final_notes += f" | 메모:{memo}"
+
             new_row = {
                 "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient, 
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
@@ -213,18 +209,19 @@ with t1:
                 "Completed Date": cp.strftime('%Y-%m-%d'),
                 "Shipping Date": shp_val.strftime('%Y-%m-%d'),
                 "Due Date": due_val.strftime('%Y-%m-%d'),
-                "Status": stt, "Notes": ", ".join(chks) + f" | {memo}"
+                "Status": stt, "Notes": final_notes
             }
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
-            st.success("데이터가 성공적으로 저장되었습니다.")
+            st.success("데이터 저장 완료!")
             time.sleep(1)
             st.session_state.it += 1
             st.session_state.last_analyzed = None
             st.cache_data.clear()
             st.rerun()
 
+# t2, t3 정산/검색 로직 생략 없이 그대로 유지
 with t2:
-    st.markdown("### 💰 실적 및 부족 수량 확인")
+    st.markdown("### 📊 실적 및 부족 수량 확인")
     today = date.today()
     sy, sm = st.columns(2)
     s_y = sy.selectbox("연도", range(today.year, today.year - 5, -1))
@@ -236,7 +233,7 @@ with t2:
         pdf['SD_DT'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[(pdf['SD_DT'].dt.year == s_y) & (pdf['SD_DT'].dt.month == s_m)]
         if not m_dt.empty:
-            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status']], use_container_width=True, hide_index=True)
+            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status', 'Notes']], use_container_width=True, hide_index=True)
             norm_cases = m_dt[m_dt['Status'].str.lower() == 'normal']
             tot_qty = norm_cases['Qty'].sum()
             tot_amt = norm_cases['Total'].sum()
