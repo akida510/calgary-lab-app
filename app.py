@@ -7,7 +7,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# 1. 디자인 절대 고정 (다크 네이비 테마 및 가독성 설정)
+# 1. 디자인 및 카메라 크기 확장 설정 (절대 고정)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -17,6 +17,19 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
+    /* 카메라 입력창 크기 대폭 확장 */
+    [data-testid="stCameraInput"] {
+        width: 100% !important;
+    }
+    [data-testid="stCameraInput"] > div {
+        width: 100% !important;
+    }
+    video {
+        border-radius: 10px;
+        width: 100% !important;
+        height: auto !important;
+    }
+    
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
         color: #ffffff !important; font-weight: 600 !important;
     }
@@ -34,7 +47,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 제목 및 제작자 정보 고정 (절대 변경 금지)
+# 💡 제목 및 제작자 정보 고정
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;"> SKYCAD Dental Lab NIGHT GUARD Manager </div>
@@ -44,7 +57,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# AI 설정
+# AI 설정 (Secrets 확인)
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -68,16 +81,24 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
-# AI 분석 로직
+# 💡 최적화된 AI 분석 로직
 def run_ai_analysis(img_file):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
         img = Image.open(img_file)
-        prompt = """Analyze this dental lab prescription. Return ONLY a JSON object with: 
-        "case_no", "patient", "clinic", "doctor", "arch", "material". No markdown formatting."""
+        # 응답 속도를 높이기 위해 출력 형식을 매우 단순하게 지시
+        prompt = "Analyze dental lab order. Output JSON: {\"case_no\":\"\", \"patient\":\"\", \"clinic\":\"\", \"doctor\":\"\", \"arch\":\"Maxillary or Mandibular\", \"material\":\"Thermo or Dual or Soft or Hard\"}"
         response = model.generate_content([prompt, img])
-        return json.loads(response.text.strip())
-    except: return None
+        # JSON 부분만 골라내기
+        text = response.text.strip()
+        if "{" in text:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            return json.loads(text[start:end])
+        return None
+    except Exception as e:
+        st.error(f"AI Error: {e}")
+        return None
 
 # 양방향 동기화
 def on_doctor_change():
@@ -101,18 +122,24 @@ with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    with st.expander("📸 의뢰서 사진 촬영 및 AI 자동 입력", expanded=True):
-        cam_img = st.camera_input("의뢰서를 찍어주세요")
-        if cam_img and st.button("✨ 사진 내용 분석 시작"):
-            res = run_ai_analysis(cam_img)
-            if res:
-                for k, v in res.items():
-                    if k == "case_no": st.session_state["c" + iter_no] = v
-                    if k == "patient": st.session_state["p" + iter_no] = v
-                st.success("분석 완료!")
-                st.rerun()
+    with st.expander("📸 의뢰서 전체화면 촬영 및 AI 분석", expanded=True):
+        cam_img = st.camera_input("의뢰서를 화면 가득 찍어주세요")
+        if cam_img and st.button("✨ 사진 내용 즉시 분석"):
+            with st.spinner("AI가 분석 중..."):
+                res = run_ai_analysis(cam_img)
+                if res:
+                    # 분석 결과 세션에 저장 (반영 속도 향상)
+                    if res.get("case_no"): st.session_state["c" + iter_no] = str(res["case_no"])
+                    if res.get("patient"): st.session_state["p" + iter_no] = str(res["patient"])
+                    if res.get("clinic") in clinics_list: st.session_state["sc_box" + iter_no] = res["clinic"]
+                    if res.get("doctor") in docs_list: st.session_state["sd" + iter_no] = res["doctor"]
+                    if res.get("arch") in ["Maxillary", "Mandibular"]: st.session_state["ar" + iter_no] = res["arch"]
+                    if res.get("material") in ["Thermo", "Dual", "Soft", "Hard"]: st.session_state["ma" + iter_no] = res["material"]
+                    st.success("분석 완료! 데이터가 반영되었습니다.")
+                    time.sleep(0.5)
+                    st.rerun()
 
-    st.markdown("### 📋 정보 입력")
+    st.markdown("### 📋 정보 확인")
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case Number", key="c" + iter_no)
     patient = c1.text_input("환자명 (Patient)", key="p" + iter_no)
@@ -139,13 +166,16 @@ with t1:
             p_u = 180
             if final_cl and not ref.empty:
                 match = ref[ref.iloc[:, 1] == final_cl]
-                if not match.empty: p_u = int(float(match.iloc[0, 3]))
+                if not match.empty:
+                    try: p_u = int(float(match.iloc[0, 3]))
+                    except: p_u = 180
             new_row = {"Case #": case_no, "Clinic": final_cl, "Doctor": final_doc, "Patient": patient, "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty, "Receipt Date": rd.strftime('%Y-%m-%d'), "Completed Date": cp.strftime('%Y-%m-%d'), "Shipping Date": shp_val.strftime('%Y-%m-%d'), "Due Date": due_val.strftime('%Y-%m-%d'), "Status": stt}
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
             st.success("저장 완료!")
             st.session_state.it += 1
             st.rerun()
 
+# 📊 통계 및 🔍 검색 기능 (기존 로직 그대로 유지)
 with t2:
     st.markdown("### 💰 정산 및 실적")
     today = date.today()
@@ -158,8 +188,9 @@ with t2:
         m_dt = pdf[(pdf['SD_DT'].dt.year == s_y) & (pdf['SD_DT'].dt.month == s_m)]
         if not m_dt.empty:
             st.dataframe(m_dt, use_container_width=True, hide_index=True)
-            tot_qty = pd.to_numeric(m_dt[m_dt['Status']=='Normal']['Qty'], errors='coerce').sum()
-            tot_amt = pd.to_numeric(m_dt[m_dt['Status']=='Normal']['Total'], errors='coerce').sum()
+            norm_cases = m_dt[m_dt['Status']=='Normal']
+            tot_qty = pd.to_numeric(norm_cases['Qty'], errors='coerce').sum()
+            tot_amt = pd.to_numeric(norm_cases['Total'], errors='coerce').sum()
             m1, m2, m3 = st.columns(3)
             m1.metric("총 생산", f"{int(tot_qty)} ea")
             m2.metric("부족분(320기준)", f"{max(0, 320-int(tot_qty))} ea")
@@ -169,4 +200,4 @@ with t3:
     st.markdown("### 🔍 검색")
     q = st.text_input("검색어(번호/환자)")
     if q and not main_df.empty:
-        st.dataframe(main_df[main_df['Case #'].str.contains(q) | main_df['Patient'].str.contains(q)], use_container_width=True, hide_index=True)
+        st.dataframe(main_df[main_df['Case #'].str.contains(q, case=False) | main_df['Patient'].str.contains(q, case=False)], use_container_width=True, hide_index=True)
