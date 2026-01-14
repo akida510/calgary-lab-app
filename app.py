@@ -7,7 +7,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# 1. 디자인 및 카메라 크기 확장 설정 (절대 고정)
+# 1. 디자인 및 카메라 설정 (절대 고정)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -17,17 +17,15 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    /* 카메라 입력창 크기 대폭 확장 */
+    /* 카메라 입력창 크기 대폭 확장 및 후면 카메라 최적화 */
     [data-testid="stCameraInput"] {
-        width: 100% !important;
-    }
-    [data-testid="stCameraInput"] > div {
         width: 100% !important;
     }
     video {
         border-radius: 10px;
         width: 100% !important;
         height: auto !important;
+        object-fit: cover;
     }
     
     [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, [data-testid="stExpander"] p, .stMetric p {
@@ -47,7 +45,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 💡 제목 및 제작자 정보 고정
+# 💡 고정 제목 및 제작자 정보 (절대 수정 금지)
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;"> SKYCAD Dental Lab NIGHT GUARD Manager </div>
@@ -57,7 +55,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# AI 설정 (Secrets 확인)
+# AI 설정
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -81,15 +79,13 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
-# 💡 최적화된 AI 분석 로직
+# AI 분석 로직
 def run_ai_analysis(img_file):
     try:
         model = genai.GenerativeModel('gemini-1.5-flash')
         img = Image.open(img_file)
-        # 응답 속도를 높이기 위해 출력 형식을 매우 단순하게 지시
         prompt = "Analyze dental lab order. Output JSON: {\"case_no\":\"\", \"patient\":\"\", \"clinic\":\"\", \"doctor\":\"\", \"arch\":\"Maxillary or Mandibular\", \"material\":\"Thermo or Dual or Soft or Hard\"}"
         response = model.generate_content([prompt, img])
-        # JSON 부분만 골라내기
         text = response.text.strip()
         if "{" in text:
             start = text.find("{")
@@ -122,20 +118,20 @@ with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    with st.expander("📸 의뢰서 전체화면 촬영 및 AI 분석", expanded=True):
-        cam_img = st.camera_input("의뢰서를 화면 가득 찍어주세요")
+    with st.expander("📸 의뢰서 촬영 및 AI 분석 (후면 카메라 우선)", expanded=True):
+        # camera_input은 모바일 환경에서 자동으로 후면 카메라 전환 옵션을 제공합니다.
+        cam_img = st.camera_input("의뢰서를 후면 카메라로 찍어주세요")
         if cam_img and st.button("✨ 사진 내용 즉시 분석"):
-            with st.spinner("AI가 분석 중..."):
+            with st.spinner("AI 분석 중..."):
                 res = run_ai_analysis(cam_img)
                 if res:
-                    # 분석 결과 세션에 저장 (반영 속도 향상)
                     if res.get("case_no"): st.session_state["c" + iter_no] = str(res["case_no"])
                     if res.get("patient"): st.session_state["p" + iter_no] = str(res["patient"])
                     if res.get("clinic") in clinics_list: st.session_state["sc_box" + iter_no] = res["clinic"]
                     if res.get("doctor") in docs_list: st.session_state["sd" + iter_no] = res["doctor"]
                     if res.get("arch") in ["Maxillary", "Mandibular"]: st.session_state["ar" + iter_no] = res["arch"]
                     if res.get("material") in ["Thermo", "Dual", "Soft", "Hard"]: st.session_state["ma" + iter_no] = res["material"]
-                    st.success("분석 완료! 데이터가 반영되었습니다.")
+                    st.success("데이터 반영 완료!")
                     time.sleep(0.5)
                     st.rerun()
 
@@ -175,7 +171,7 @@ with t1:
             st.session_state.it += 1
             st.rerun()
 
-# 📊 통계 및 🔍 검색 기능 (기존 로직 그대로 유지)
+# 📊 통계 및 🔍 검색 기능 (디자인/로직 그대로 유지)
 with t2:
     st.markdown("### 💰 정산 및 실적")
     today = date.today()
