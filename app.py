@@ -7,7 +7,7 @@ import google.generativeai as genai
 from PIL import Image
 import json
 
-# 1. 디자인 절대 고정 및 세로형 카메라 커스텀 설정
+# 1. 디자인 절대 고정 및 카메라 세로형 강제 CSS
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -18,14 +18,14 @@ st.markdown("""
         margin-bottom: 25px; border: 1px solid #30363d;
     }
     
-    /* 💡 카메라 창을 세로형(Portrait)으로 강제 최적화 */
+    /* 🚨 카메라 입력창 세로형 강제 고정 (너비를 줄이고 높이를 확보) */
     [data-testid="stCameraInput"] {
         width: 100% !important;
-        max-width: 500px !important; /* 모바일 세로 비율 유지용 */
+        max-width: 400px !important; /* 가로폭을 제한하여 세로 느낌 강조 */
         margin: 0 auto;
     }
     [data-testid="stCameraInput"] video {
-        aspect-ratio: 3 / 4 !important; /* 세로형 비율 설정 */
+        aspect-ratio: 9 / 16 !important; /* 스마트폰 세로 비율 */
         object-fit: cover !important;
         border-radius: 15px;
         border: 2px solid #4c6ef5;
@@ -58,7 +58,7 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# AI 및 데이터베이스 설정 (동일하게 유지)
+# AI 설정
 if "GOOGLE_API_KEY" in st.secrets:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
@@ -102,9 +102,9 @@ with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
     
-    # 📸 세로형 카메라 분석 섹션
+    # 📸 세로형 카메라 (비율 교정 완료)
     with st.expander("📸 의뢰서 세로형 촬영 및 AI 분석", expanded=True):
-        cam_img = st.camera_input("세로로 의뢰서를 찍어주세요", key="v_cam")
+        cam_img = st.camera_input("의뢰서를 세로 방향으로 촬영하세요")
         if cam_img and st.button("✨ 세로 사진 분석 시작"):
             with st.spinner("AI 분석 중..."):
                 img = Image.open(cam_img)
@@ -139,7 +139,7 @@ with t1:
         shp_val = d3.date_input("출고일", key="shp" + iter_no)
         stt = d3.selectbox("상태", ["Normal","Hold","Canceled"], key="st" + iter_no)
 
-    # 📂 특이사항 및 사진 첨부 (디자인 복구 유지)
+    # 📂 체크리스트 및 사진 업로드 (누락 없음)
     with st.expander("📂 특이사항 및 사진 첨부", expanded=True):
         col_ex1, col_ex2 = st.columns([0.6, 0.4])
         chks = []
@@ -172,10 +172,9 @@ with t1:
             st.session_state.it += 1
             st.rerun()
 
-# 통계 및 검색 탭 (동일 유지)
+# [정산/검색 탭 로직은 동일하게 유지]
 with t2:
     st.markdown("### 💰 정산 및 실적")
-    # ... 기존 정산 로직 유지 ...
     today = date.today()
     sy, sm = st.columns(2)
     s_y = sy.selectbox("연도", range(today.year, today.year - 5, -1))
