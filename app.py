@@ -2,10 +2,8 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime, timedelta, date
-import google.generativeai as genai
-from PIL import Image
 
-# 1. 디자인 및 테마 고정
+# 1. 초기 디자인 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -36,24 +34,25 @@ def get_data():
         return df[df['Case #'].str.strip() != ""].reset_index(drop=True)
     except: return pd.DataFrame()
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=1) # Reference 시트도 즉시 반영되게 변경
 def get_ref():
     try:
-        # Reference 시트 전체 로드
-        return conn.read(worksheet="Reference", ttl=600).astype(str)
+        # worksheet="Reference" 시트의 모든 내용을 읽어옴
+        df_ref = conn.read(worksheet="Reference", ttl=0)
+        return df_ref
     except: return pd.DataFrame()
 
 main_df = get_data()
-ref = get_ref()
+ref_df = get_ref()
 
 # ---------------------------------------------------------
 t1, t2, t3 = st.tabs(["📝 등록", "📊 정산 및 실적", "🔍 검색"])
 
 with t1:
     st.markdown("### 📋 정보 입력")
-    # 병원/의사 리스트
-    clinics = sorted([c for c in ref.iloc[:, 1].unique() if c and str(c).lower() != 'nan']) if not ref.empty else []
-    docs = sorted([d for d in ref.iloc[:, 2].unique() if d and str(d).lower() != 'nan']) if not ref.empty else []
+    # 병원/의사 리스트 (A, B, C열 기준)
+    clinics = sorted([str(c) for c in ref_df.iloc[:, 1].unique() if pd.notna(c) and str(c) != 'Clinic']) if not ref_df.empty else []
+    docs = sorted([str(d) for d in ref_df.iloc[:, 2].unique() if pd.notna(d) and str(d) != 'Doctor']) if not ref_df.empty else []
     
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case Number", key="c"+iter_no)
@@ -67,23 +66,21 @@ with t1:
         shp_val = d3.date_input("Shipping Date", key="shp"+iter_no)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st"+iter_no)
 
-    # 🔥 [수정] 체크리스트(특이사항) 로직 강화
+    # 🔥 [핵심 수정] 체크리스트(특이사항) 로직 전면 개편
     st.markdown("### 📂 특이사항 및 사진")
     col_ex1, col_ex2 = st.columns([0.6, 0.4])
     
     chks_options = []
-    if not ref.empty:
-        # Reference 시트의 4번째 열(D열)부터 마지막 열까지 데이터 추출
-        # iloc[:, 3:]는 D열부터 끝까지를 의미합니다.
-        raw_rows = ref.iloc[:, 3:].values.flatten()
-        # 실제 값이 있는 텍스트만 필터링 (nan, 빈칸, Price 제외)
-        chks_options = sorted(list(set([str(v).strip() for v in raw_rows if v and str(v).lower() not in ['nan', 'none', '', 'price']])))
+    if not ref_df.empty:
+        # 시트의 4번째 열(D열)부터 마지막 열까지 데이터만 추출
+        # iloc[row_start:, col_start:] 구조
+        subset = ref_df.iloc[:, 3:] 
+        # 모든 값을 리스트로 만들고 중복/결측치 제거
+        flat_list = subset.values.flatten()
+        chks_options = sorted(list(set([str(x).strip() for x in flat_list if pd.notna(x) and str(x).strip() != "" and str(x).lower() != 'price'])))
     
-    # 만약 위 로직으로도 안 나올 경우를 대비한 안전 장치
-    if not chks_options:
-        chks_options = ["데이터 확인 필요 (시트 D열부터 입력)"]
-
-    chks = col_ex1.multiselect("📌 특이사항 선택 (Reference 연동)", chks_options, key="ck"+iter_no)
+    # 만약 시트 로드 실패 시에도 입력은 가능하게 함
+    chks = col_ex1.multiselect("📌 특이사항 선택 (D열 이후 데이터)", chks_options, key="ck"+iter_no)
     up_f = col_ex1.file_uploader("🖼️ 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up"+iter_no)
     memo = col_ex2.text_area("📝 추가 메모", key="me"+iter_no, height=150)
 
@@ -100,24 +97,27 @@ with t2:
     sel_month = c_mo.selectbox("월", range(1, 13), index=date.today().month - 1)
     
     if not main_df.empty:
-        # 날짜 필터링 (Shipping Date 기준)
-        main_df['Date_Obj'] = pd.to_datetime(main_df['Shipping Date'], errors='coerce')
-        m_df = main_df[(main_df['Date_Obj'].dt.year == sel_year) & (main_df['Date_Obj'].dt.month == sel_month)]
+        # 날짜 필터링 강화: Shipping Date 컬럼을 시계열로 변환
+        main_df['Date_Filter'] = pd.to_datetime(main_df['Shipping Date'], errors='coerce')
+        m_df = main_df[(main_df['Date_Filter'].dt.year == sel_year) & (main_df['Date_Filter'].dt.month == sel_month)]
         
-        # 리스트 출력
-        st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status', 'Notes']], use_container_width=True, hide_index=True)
-        
-        # 하단 합계
-        v_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
-        total_q = pd.to_numeric(v_df['Qty'], errors='coerce').sum()
-        over_q = max(0, total_q - 320)
-        over_pay = over_q * 19.505333
-        
-        st.markdown("---")
-        f1, f2, f3 = st.columns(3)
-        f1.metric("월 총 수량", f"{int(total_q)} ea")
-        f2.metric("320개 초과분", f"{int(over_q)} ea")
-        f3.metric("초과 수익 ($)", f"${over_pay:,.2f}")
+        # 1. 월별 리스트 출력
+        if not m_df.empty:
+            st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status', 'Notes']], use_container_width=True, hide_index=True)
+            
+            # 2. 정산 계산
+            v_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
+            total_q = pd.to_numeric(v_df['Qty'], errors='coerce').sum()
+            over_q = max(0, total_q - 320)
+            over_pay = over_q * 19.505333
+            
+            st.markdown("---")
+            f1, f2, f3 = st.columns(3)
+            f1.metric("월 총 수량", f"{int(total_q)} ea")
+            f2.metric("320개 초과분", f"{int(over_q)} ea")
+            f3.metric("초과 수익 ($)", f"${over_pay:,.2f}")
+        else:
+            st.warning("선택하신 월에 해당하는 데이터가 없습니다.")
 
 with t3:
     st.markdown("### 🔍 검색")
