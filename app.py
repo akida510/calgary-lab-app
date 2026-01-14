@@ -6,7 +6,7 @@ import google.generativeai as genai
 from PIL import Image
 import time
 
-# 1. 페이지 설정 및 디자인 (절대 고정)
+# 1. 페이지 설정 및 디자인
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -31,11 +31,10 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
-
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
-# 데이터 로드
+# [데이터 로드]
 @st.cache_data(ttl=1)
 def get_data():
     try:
@@ -52,7 +51,7 @@ def get_ref():
 main_df = get_data()
 ref = get_ref()
 
-# 병원/의사 매칭 콜백
+# [로직] 콜백 및 날짜 계산
 def on_doctor_change():
     sel_doc = st.session_state.get(f"sd{iter_no}")
     if sel_doc and sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
@@ -65,7 +64,6 @@ def on_clinic_change():
         match = ref[ref.iloc[:, 1] == sel_cl]
         if not match.empty: st.session_state[f"sd{iter_no}"] = match.iloc[0, 2]
 
-# 날짜 자동 계산 함수
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -76,7 +74,6 @@ def get_shp(d_date):
 def sync_date():
     st.session_state[f"shp{iter_no}"] = get_shp(st.session_state[f"due{iter_no}"])
 
-# 초기 날짜 세션 설정
 if f"due{iter_no}" not in st.session_state:
     st.session_state[f"due{iter_no}"] = date.today() + timedelta(days=7)
     st.session_state[f"shp{iter_no}"] = get_shp(st.session_state[f"due{iter_no}"])
@@ -85,13 +82,13 @@ if f"due{iter_no}" not in st.session_state:
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 정산 및 실적", "🔍 검색 (Search)"])
 
 with t1:
-    # 📸 AI 의뢰서 분석
+    # 📸 AI 자동 스캔
     with st.expander("📸 의뢰서 AI 자동 입력", expanded=False):
-        scan_file = st.file_uploader("사진 선택", type=["jpg", "png", "jpeg"], key="s"+iter_no)
-        if scan_file and st.button("✨ 분석 시작"):
+        scan_f = st.file_uploader("의뢰서 사진 스캔", type=["jpg", "png", "jpeg"], key="s"+iter_no)
+        if scan_f and st.button("✨ 분석 시작"):
             try:
                 model = genai.GenerativeModel('gemini-1.5-flash')
-                res = model.generate_content(["Extract CASE, PATIENT, DOCTOR. Format: CASE:val, PATIENT:val, DOCTOR:val", Image.open(scan_file)]).text
+                res = model.generate_content(["CASE:val, PATIENT:val, DOCTOR:val", Image.open(scan_f)]).text
                 for item in res.split(','):
                     if ':' in item:
                         k, v = item.split(':', 1)
@@ -101,7 +98,7 @@ with t1:
                             st.session_state["sd"+iter_no] = v.strip()
                             on_doctor_change()
                 st.rerun()
-            except: st.error("AI 분석 오류")
+            except: st.error("AI 오류")
 
     st.markdown("### 📋 정보 입력")
     clinics_list = sorted(list(ref.iloc[:, 1].unique())) if not ref.empty else []
@@ -127,25 +124,31 @@ with t1:
         shp_val = d3.date_input("Shipping Date", key="shp"+iter_no)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st"+iter_no)
 
-    st.markdown("### ✅ 특이사항 (Checklist)")
-    chks = []
-    if not ref.empty and len(ref.columns) > 3:
-        raw_opts = ref.iloc[:, 3:].values.flatten()
-        chks_list = sorted(list(set([str(x) for x in raw_opts if x and str(x)!='nan' and str(x)!='Price'])))
-        chks = st.multiselect("특이사항 선택", chks_list, key="ck"+iter_no)
-
-    memo = st.text_area("메모 사항", key="me"+iter_no)
+    st.markdown("### 📂 특이사항 및 사진 (Notes & Photos)")
+    with st.expander("상세 내용 입력", expanded=True):
+        col_ex1, col_ex2 = st.columns([0.6, 0.4])
+        # 1. 체크리스트
+        chks = []
+        if not ref.empty and len(ref.columns) > 3:
+            raw_opts = ref.iloc[:, 3:].values.flatten()
+            chks_list = sorted(list(set([str(x) for x in raw_opts if x and str(x)!='nan' and str(x)!='Price'])))
+            chks = col_ex1.multiselect("특이사항 선택", chks_list, key="ck"+iter_no)
+        # 2. 참고 사진 (복구 완료)
+        uploaded_file = col_ex1.file_uploader("참고 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up"+iter_no)
+        # 3. 메모
+        memo = col_ex2.text_area("기타 메모", key="me"+iter_no, height=150)
 
     if st.button("🚀 데이터 저장하기"):
-        if not case_no: st.error("Case Number를 입력하세요.")
+        if not case_no: st.error("Case Number 입력 필수")
         else:
             p_u = 180
             if f_cl and not ref.empty:
-                p_m = ref[ref.iloc[:, 1] == f_cl]
-                if not p_m.empty:
-                    try: p_u = int(float(p_m.iloc[0, 3]))
-                    except: p_u = 180
+                p_m = ref[ref.iloc[:, 1] == f_cl]; p_u = int(float(p_m.iloc[0, 3])) if not p_m.empty else 180
             
+            final_notes = ", ".join(chks)
+            if uploaded_file: final_notes += f" | 사진:{uploaded_file.name}"
+            if memo: final_notes += f" | 메모:{memo}"
+
             new_row = {
                 "Case #": case_no, "Clinic": f_cl, "Doctor": f_doc, "Patient": patient, 
                 "Arch": arch, "Material": mat, "Price": p_u, "Qty": qty, "Total": p_u * qty,
@@ -153,7 +156,7 @@ with t1:
                 "Completed Date": cp.strftime('%Y-%m-%d'),
                 "Shipping Date": shp_val.strftime('%Y-%m-%d'),
                 "Due Date": due_val.strftime('%Y-%m-%d'),
-                "Status": stt, "Notes": ", ".join(chks) + f" | {memo}"
+                "Status": stt, "Notes": final_notes
             }
             conn.update(data=pd.concat([main_df, pd.DataFrame([new_row])], ignore_index=True))
             st.success("저장 완료!")
@@ -162,24 +165,34 @@ with t1:
             st.rerun()
 
 with t2:
-    st.markdown("### 💰 이번 달 정산 현황")
-    this_m = date.today().strftime('%Y-%m')
+    st.markdown("### 💰 정산 실적 현황")
     if not main_df.empty:
-        m_df = main_df[main_df['Shipping Date'].str.contains(this_m, na=False)]
-        u_price = 19.505333
-        quota = 320
+        # [수정] 날짜 필터링 강화: 현재 연도와 월이 포함된 모든 데이터를 가져옴
+        today = date.today()
+        # 연도와 월을 따로 체크하여 2026-1-13과 2026-01-13 모두 잡도록 함
+        main_df['SD_DT'] = pd.to_datetime(main_df['Shipping Date'], errors='coerce')
+        m_df = main_df[(main_df['SD_DT'].dt.year == today.year) & (main_df['SD_DT'].dt.month == today.month)]
+        
+        # 정산 수치
+        unit_p = 19.505333; quota = 320
         v_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
         t_qty = pd.to_numeric(v_df['Qty'], errors='coerce').sum()
-        t_amt = t_qty * u_price
+        t_pay = t_qty * unit_p
         diff = quota - t_qty
 
         m1, m2, m3 = st.columns(3)
-        m1.metric("총 생산 수량", f"{int(t_qty)} ea")
-        m2.metric("320개 기준 부족분", f"{int(diff)} ea" if diff > 0 else "목표 달성!")
-        m3.metric("예상 정산 금액", f"${t_amt:,.2f}")
-        st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status']], use_container_width=True, hide_index=True)
+        m1.metric("이번 달 총 생산량", f"{int(t_qty)} ea")
+        m2.metric("320개 부족분", f"{int(diff)} ea" if diff > 0 else "목표 달성!")
+        m3.metric("총 정산 예상액", f"${t_pay:,.2f}")
+        
+        st.markdown("---")
+        st.write(f"📋 **{today.year}년 {today.month}월 세부 리스트**")
+        if not m_df.empty:
+            st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status', 'Notes']], use_container_width=True, hide_index=True)
+        else:
+            st.info("이번 달 데이터가 없습니다. 마감일/출고일 날짜를 확인해주세요.")
 
 with t3:
-    q = st.text_input("검색어 입력")
+    q = st.text_input("검색 (번호/성함)")
     if q and not main_df.empty:
         st.dataframe(main_df[main_df.apply(lambda r: q in r.astype(str).values, axis=1)], use_container_width=True)
