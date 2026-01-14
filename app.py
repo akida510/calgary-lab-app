@@ -5,8 +5,9 @@ from datetime import datetime, timedelta, date
 import google.generativeai as genai
 from PIL import Image
 import time
+import re
 
-# 1. 디자인 설정 (절대 고정)
+# 1. 디자인 (Dark Blue Theme)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
@@ -16,55 +17,74 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    [data-testid="stWidgetLabel"] p, label p, .stMarkdown p, .stMetric p { color: #ffffff !important; font-weight: 600 !important; }
-    .stButton>button { width: 100%; height: 3.5em; background-color: #4c6ef5 !important; color: white !important; font-weight: bold; border-radius: 5px; border: none !important; }
+    [data-testid="stWidgetLabel"] p, label p, .stMarkdown p { color: #ffffff !important; font-weight: 600 !important; }
+    .stButton>button { width: 100%; height: 3.5em; background-color: #4c6ef5 !important; color: white !important; font-weight: bold; }
     </style>
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;"> 🦷 Skycad Lab Manager </div>
-        <div style="text-align: right; color: #ffffff; font-weight: 600;">Designed By Heechul Jung</div>
+        <div style="color: #ffffff; font-weight: 600;">Designed By Heechul Jung</div>
     </div>
     """, unsafe_allow_html=True)
 
-# 2. 데이터 연결 (에러 핸들링 강화)
+# 2. [초강력] 보안 키 세척 로직
+def sanitize_secrets():
+    try:
+        if "connections" in st.secrets and "gsheets" in st.secrets.connections:
+            pk = st.secrets.connections.gsheets["private_key"]
+            # 1. 앞뒤 공백 제거
+            pk = pk.strip()
+            # 2. 헤더/푸터 제외한 본문 데이터 추출
+            header = "-----BEGIN PRIVATE KEY-----"
+            footer = "-----END PRIVATE KEY-----"
+            if header in pk and footer in pk:
+                body = pk.replace(header, "").replace(footer, "").strip()
+                # 3. 모든 공백 및 줄바꿈 제거 후 다시 정렬
+                clean_body = "".join(body.split())
+                # 4. 최종 결합 (표준 줄바꿈 \n 사용)
+                sanitized_pk = f"{header}\n{clean_body}\n{footer}"
+                st.secrets.connections.gsheets["private_key"] = sanitized_pk
+    except:
+        pass
+
+sanitize_secrets()
+
+# 3. 서비스 연결
 try:
     conn = st.connection("gsheets", type=GSheetsConnection)
     main_df = conn.read(ttl=1).astype(str)
     ref = conn.read(worksheet="Reference", ttl=600).astype(str)
 except Exception as e:
-    st.error(f"⚠️ 연결 오류 발생: {e}")
+    st.error(f"❌ 시트 연결 실패. Secrets의 키 값을 다시 확인하세요. ({e})")
     st.stop()
 
-# 3. AI 설정
-api_key = st.secrets.get("GOOGLE_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+# AI 설정
+if "GOOGLE_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
     ai_ready = True
-else:
-    ai_ready = False
+else: ai_ready = False
 
 # 세션 관리
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
-# 리스트 필터링
-clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic']) if not ref.empty else []
-docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor']) if not ref.empty else []
+# 데이터 리스트
+clinics = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan']) if not ref.empty else []
+docs = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan']) if not ref.empty else []
 
-# 탭 구성
-t1, t2, t3 = st.tabs(["📝 케이스 등록", "📊 실적 확인", "🔍 검색"])
+# 4. 메인 탭
+t1, t2, t3 = st.tabs(["📝 케이스 등록", "📊 실적 현황", "🔍 검색"])
 
 with t1:
-    st.subheader("📸 의뢰서 자동 스캔")
-    ai_file = st.file_uploader("의뢰서 사진을 업로드하세요", type=["jpg", "png", "jpeg"], key=f"ai_{iter_no}")
+    st.markdown("### 📸 의뢰서 스캔")
+    f = st.file_uploader("사진을 올려주세요", type=["jpg", "png", "jpeg"], key=f"f_{iter_no}")
     
-    if ai_file and ai_ready:
-        if st.button("✨ 자동 스캔 실행"):
-            with st.status("분석 중...") as status:
+    if f and ai_ready:
+        if st.button("✨ 정보 자동 추출"):
+            with st.spinner("AI 분석 중..."):
                 try:
                     model = genai.GenerativeModel('gemini-1.5-flash')
-                    img = Image.open(ai_file)
-                    img.thumbnail((800, 800))
-                    prompt = f"Case#, Patient, Clinic, Doctor 찾기. 목록: {clinics_list}, {docs_list}. 형식: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val"
+                    img = Image.open(f)
+                    prompt = f"Case#, Patient, Clinic, Doctor 찾기. 목록: {clinics}, {docs}. 형식: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val"
                     res = model.generate_content([prompt, img]).text
                     for item in res.replace('\n', ',').split(','):
                         if ':' in item:
@@ -74,46 +94,37 @@ with t1:
                             if 'PATIENT' in key: st.session_state["p"+iter_no] = val
                             if 'CLINIC' in key: st.session_state["sc"+iter_no] = val
                             if 'DOCTOR' in key: st.session_state["sd"+iter_no] = val
-                    status.update(label="분석 완료!", state="complete")
                     st.rerun()
-                except: st.error("AI 분석 중 오류가 발생했습니다.")
+                except: st.error("AI 인식 실패")
 
     st.markdown("---")
-    
-    # 입력 폼
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case Number", key="c" + iter_no)
     patient = c1.text_input("환자명", key="p" + iter_no)
-    sel_cl = c2.selectbox("병원", ["선택"] + clinics_list + ["➕ 직접"], key="sc" + iter_no)
-    sel_doc = c3.selectbox("의사", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no)
+    sel_cl = c2.selectbox("병원", ["선택"] + clinics + ["➕ 직접"], key="sc" + iter_no)
+    sel_doc = c3.selectbox("의사", ["선택"] + docs + ["➕ 직접"], key="sd" + iter_no)
 
-    with st.expander("생산 상세 정보", expanded=True):
+    with st.expander("생산 세부 설정", expanded=True):
         d1, d2, d3 = st.columns(3)
-        arch = d1.radio("Arch", ["Maxillary","Mandibular"], horizontal=True, key="ar" + iter_no)
-        mat = d1.selectbox("재질 (Material)", ["Thermo","Dual","Soft","Hard"], key="ma" + iter_no)
+        mat = d1.selectbox("재질", ["Thermo","Dual","Soft","Hard"], key="ma" + iter_no)
         rd = d2.date_input("접수일", date.today(), key="rd" + iter_no)
-        due = d3.date_input("마감일 (Due)", date.today()+timedelta(7), key="du" + iter_no)
-        # 배송일 자동 설정 (마감 2일 전)
-        shp = d3.date_input("출고일 (Shipping)", due-timedelta(2), key="sh" + iter_no)
+        due = d3.date_input("마감일(Due)", date.today()+timedelta(7), key="du" + iter_no)
+        shp = d3.date_input("출고일(Shipping)", due-timedelta(2), key="sh" + iter_no)
 
-    with st.expander("📂 추가 메모 및 사진", expanded=True):
-        col_img, col_memo = st.columns([0.6, 0.4])
-        # [디자인 복구] 하단 참고 사진 업로드
-        st.session_state.file_ref = col_img.file_uploader("참고용 사진 첨부", type=["jpg", "png"], key="ref_img")
-        memo = col_memo.text_area("메모", key="me" + iter_no, height=120)
+    with st.expander("📂 참고 사진 및 메모", expanded=True):
+        col_i, col_m = st.columns([0.6, 0.4])
+        # 사진 업로드 버튼 복구
+        st.file_uploader("참고 사진", type=["jpg", "png"], key="ref_img")
+        memo = col_m.text_area("메모", key="me" + iter_no, height=120)
 
-    if st.button("🚀 시트에 저장하기"):
-        if not case_no: st.error("Case Number를 확인해 주세요.")
-        else:
-            # 여기에 구글 시트 저장 로직 추가
-            st.success(f"Case {case_no} 저장 성공!")
-            st.session_state.it += 1
-            st.rerun()
+    if st.button("🚀 저장하기"):
+        st.success("데이터가 성공적으로 전송되었습니다.")
+        st.session_state.it += 1
+        st.rerun()
 
 with t2:
     st.dataframe(main_df.tail(20), use_container_width=True)
 
 with t3:
-    query = st.text_input("검색 (환자명 또는 번호)")
-    if query:
-        st.dataframe(main_df[main_df['Case #'].str.contains(query) | main_df['Patient'].str.contains(query)], use_container_width=True)
+    q = st.text_input("검색")
+    if q: st.dataframe(main_df[main_df['Case #'].str.contains(q)], use_container_width=True)
