@@ -68,6 +68,7 @@ if "GOOGLE_API_KEY" in st.secrets:
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
+# 세션 초기화 (반복 방지용)
 if "it" not in st.session_state: st.session_state.it = 0
 if "last_analyzed" not in st.session_state: st.session_state.last_analyzed = None
 iter_no = str(st.session_state.it)
@@ -82,39 +83,13 @@ def get_data():
 
 @st.cache_data(ttl=600)
 def get_ref():
-    try:
-        return conn.read(worksheet="Reference", ttl=600).astype(str)
+    try: return conn.read(worksheet="Reference", ttl=600).astype(str)
     except: return pd.DataFrame()
 
 main_df = get_data()
 ref = get_ref()
 
-# --- AI 자동 분석 함수 (고속 엔진 적용) ---
-def auto_analyze_order(uploaded_file):
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        img = Image.open(uploaded_file)
-        
-        # 이미지 압축 (속도 향상 및 오류 방지)
-        img.thumbnail((800, 800))
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=80)
-        optimized_img = Image.open(buf)
-        
-        prompt = """Extract info from this dental order sheet. Response ONLY in this format: 
-        CASE:value, PATIENT:value, CLINIC:value, DOCTOR:value"""
-        
-        response = model.generate_content([prompt, optimized_img])
-        res = {}
-        for item in response.text.replace('\n', ',').split(','):
-            if ':' in item:
-                k, v = item.split(':', 1)
-                res[k.strip().upper()] = v.strip()
-        return res
-    except:
-        return None
-
-# --- 날짜 및 매칭 로직 유지 ---
+# --- 날짜 및 매칭 로직 ---
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -123,16 +98,37 @@ def get_shp(d_date):
     return t
 
 def on_doctor_change():
-    sel_doc = st.session_state["sd" + iter_no]
-    if sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
+    sel_doc = st.session_state.get("sd" + iter_no)
+    if sel_doc and sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
         match = ref[ref.iloc[:, 2] == sel_doc]
         if not match.empty: st.session_state["sc_box" + iter_no] = match.iloc[0, 1]
 
 def on_clinic_change():
-    sel_cl = st.session_state["sc_box" + iter_no]
-    if sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
+    sel_cl = st.session_state.get("sc_box" + iter_no)
+    if sel_cl and sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
         match = ref[ref.iloc[:, 1] == sel_cl]
         if not match.empty: st.session_state["sd" + iter_no] = match.iloc[0, 2]
+
+# --- AI 고속 분석 함수 ---
+def fast_ai_scan(uploaded_file):
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        img = Image.open(uploaded_file)
+        # 용량을 확 줄여서 속도 확보
+        img.thumbnail((600, 600)) 
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=70)
+        
+        prompt = "Scan this dental order. Output ONLY as: CASE:val, PATIENT:val, CLINIC:val, DOCTOR:val. No prose."
+        response = model.generate_content([prompt, Image.open(buf)])
+        
+        res = {}
+        for item in response.text.replace('\n', ',').split(','):
+            if ':' in item:
+                k, v = item.split(':', 1)
+                res[k.strip().upper()] = v.strip()
+        return res
+    except: return None
 
 # 탭 구성
 t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 통계 및 정산 (Analytics)", "🔍 검색 (Search)"])
@@ -141,31 +137,31 @@ with t1:
     docs_list = sorted([d for d in ref.iloc[:,2].unique() if d and str(d)!='nan' and d!='Doctor']) if not ref.empty else []
     clinics_list = sorted([c for c in ref.iloc[:,1].unique() if c and str(c)!='nan' and c!='Clinic']) if not ref.empty else []
 
-    # 📸 [신규] 자동 분석 섹션 (업로드 시 즉시 동작)
-    with st.expander("📸 의뢰서 자동 스캔 (Photo Scanner)", expanded=True):
-        ai_file = st.file_uploader("사진을 찍거나 업로드하면 자동으로 정보가 입력됩니다.", type=["jpg", "jpeg", "png"], key="scanner")
-        
-        if ai_file is not None and st.session_state.last_analyzed != ai_file.name:
-            with st.spinner("🚀 AI가 의뢰서를 분석 중입니다..."):
-                res = auto_analyze_order(ai_file)
-                if res:
-                    st.session_state["c" + iter_no] = res.get('CASE', '')
-                    st.session_state["p" + iter_no] = res.get('PATIENT', '')
-                    
-                    c_val = res.get('CLINIC', '')
-                    if c_val in clinics_list:
-                        st.session_state["sc_box" + iter_no] = c_val
-                        # 병원 인식 시 의사 자동 매칭
-                        m = ref[ref.iloc[:, 1] == c_val]
-                        if not m.empty: st.session_state["sd" + iter_no] = m.iloc[0, 2]
-                    
-                    st.session_state.last_analyzed = ai_file.name
-                    st.success("✅ 분석 완료!")
-                    time.sleep(0.5)
-                    st.rerun()
+    # 📸 자동 분석 섹션
+    st.markdown("### 📸 의뢰서 스캔")
+    ai_file = st.file_uploader("사진 촬영 시 자동 입력됩니다", type=["jpg", "jpeg", "png"], key="scanner")
+    
+    # 분석 로직 (중복 실행 방지 및 즉시 실행)
+    if ai_file is not None and st.session_state.last_analyzed != ai_file.name:
+        with st.spinner("⚡ AI 분석 중..."):
+            res = fast_ai_scan(ai_file)
+            if res:
+                st.session_state["c" + iter_no] = res.get('CASE', '')
+                st.session_state["p" + iter_no] = res.get('PATIENT', '')
+                c_val = res.get('CLINIC', '')
+                if c_val in clinics_list:
+                    st.session_state["sc_box" + iter_no] = c_val
+                    # 의사까지 매칭
+                    m = ref[ref.iloc[:, 1] == c_val]
+                    if not m.empty: st.session_state["sd" + iter_no] = m.iloc[0, 2]
+                
+                st.session_state.last_analyzed = ai_file.name
+                st.rerun()
 
+    st.markdown("---")
     st.markdown("### 📋 정보 확인")
     c1, c2, c3 = st.columns(3)
+    
     case_no = c1.text_input("Case Number", key="c" + iter_no)
     patient = c1.text_input("환자명 (Patient)", key="p" + iter_no)
     
@@ -175,7 +171,7 @@ with t1:
     sel_doc = c3.selectbox("의사 (Doctor)", ["선택"] + docs_list + ["➕ 직접"], key="sd" + iter_no, on_change=on_doctor_change)
     f_doc = c3.text_input("직접입력(의사)", key="td" + iter_no) if sel_doc=="➕ 직접" else (sel_doc if sel_doc != "선택" else "")
 
-    # 생산 세부 설정 (날짜 로직 복구 및 유지)
+    # 생산 세부 설정 (날짜 로직 복구 완료)
     with st.expander("⚙️ 생산 세부 설정 (Production Details)", expanded=True):
         d1, d2, d3 = st.columns(3)
         arch = d1.radio("Arch", ["Maxillary","Mandibular"], horizontal=True, key="ar" + iter_no)
@@ -186,7 +182,7 @@ with t1:
         rd = d2.date_input("접수일", date.today(), key="rd" + iter_no, disabled=is_33)
         cp = d2.date_input("완료예정일", date.today()+timedelta(1), key="cp" + iter_no)
         
-        # 날짜 동기화
+        # 마감일 - 출고일 동기화
         if "due" + iter_no not in st.session_state: st.session_state["due" + iter_no] = date.today() + timedelta(days=7)
         due_val = d3.date_input("Due Date (마감)", key="due" + iter_no)
         shp_val = d3.date_input("Shipping Date (출고)", get_shp(due_val), key="shp" + iter_no)
@@ -201,8 +197,7 @@ with t1:
         memo = col_ex2.text_area("기타 메모", key="me" + iter_no, height=125)
 
     if st.button("🚀 데이터 저장하기"):
-        if not case_no:
-            st.error("Case Number를 입력해주세요.")
+        if not case_no: st.error("Case Number를 입력해주세요.")
         else:
             p_u = 180
             if f_cl and not ref.empty:
@@ -228,7 +223,6 @@ with t1:
             st.cache_data.clear()
             st.rerun()
 
-# 📊 통계 및 🔍 검색 탭 (기존 코드 유지)
 with t2:
     st.markdown("### 💰 실적 및 부족 수량 확인")
     today = date.today()
@@ -242,18 +236,15 @@ with t2:
         pdf['SD_DT'] = pd.to_datetime(pdf['Shipping Date'].str[:10], errors='coerce')
         m_dt = pdf[(pdf['SD_DT'].dt.year == s_y) & (pdf['SD_DT'].dt.month == s_m)]
         if not m_dt.empty:
-            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status', 'Notes']], use_container_width=True, hide_index=True)
+            st.dataframe(m_dt[['Case #', 'Shipping Date', 'Clinic', 'Patient', 'Qty', 'Total', 'Status']], use_container_width=True, hide_index=True)
             norm_cases = m_dt[m_dt['Status'].str.lower() == 'normal']
             tot_qty = norm_cases['Qty'].sum()
             tot_amt = norm_cases['Total'].sum()
-            target_qty = 320
-            diff_qty = target_qty - tot_qty
             st.markdown("---")
             m1, m2, m3 = st.columns(3)
             m1.metric("총 생산 수량", f"{int(tot_qty)} ea")
-            m2.metric("320개 기준 부족분", f"{int(diff_qty)} ea" if diff_qty > 0 else "목표 달성!")
-            m3.metric("총 정산 금액 매출 합계", f"${int(tot_amt):,}")
-        else: st.info("해당 월의 데이터가 없습니다.")
+            m2.metric("320개 기준 부족분", f"{int(320 - tot_qty)} ea" if 320 - tot_qty > 0 else "목표 달성!")
+            m3.metric("총 정산 금액", f"${int(tot_amt):,}")
 
 with t3:
     st.markdown("### 🔍 케이스 검색")
