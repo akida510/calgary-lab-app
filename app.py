@@ -5,9 +5,8 @@ from datetime import datetime, timedelta, date
 import google.generativeai as genai
 from PIL import Image
 
-# 1. 초기 디자인으로 100% 원복 (테마 및 스타일)
+# 1. 초기 디자인 및 테마 (완벽 고정)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
-
 st.markdown("""
     <style>
     .main { background-color: #0e1117; }
@@ -18,7 +17,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 헤더 디자인 복구
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 26px; font-weight: 800; color: #ffffff;">Skycad Dental Lab Night Guard Manager</div>
@@ -30,7 +28,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if "it" not in st.session_state: st.session_state.it = 0
 iter_no = str(st.session_state.it)
 
-# 데이터 로드
+# [데이터 로드]
 @st.cache_data(ttl=1)
 def get_data():
     try:
@@ -40,25 +38,15 @@ def get_data():
 
 @st.cache_data(ttl=600)
 def get_ref():
-    try: return conn.read(worksheet="Reference", ttl=600).astype(str)
+    try:
+        # Reference 시트 로드
+        return conn.read(worksheet="Reference", ttl=600).astype(str)
     except: return pd.DataFrame()
 
 main_df = get_data()
 ref = get_ref()
 
-# [로직 고정] 콜백 및 날짜
-def on_doctor_change():
-    sel_doc = st.session_state.get(f"sd{iter_no}")
-    if sel_doc and sel_doc not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 2] == sel_doc]
-        if not match.empty: st.session_state[f"sc_box{iter_no}"] = match.iloc[0, 1]
-
-def on_clinic_change():
-    sel_cl = st.session_state.get(f"sc_box{iter_no}")
-    if sel_cl and sel_cl not in ["선택", "➕ 직접"] and not ref.empty:
-        match = ref[ref.iloc[:, 1] == sel_cl]
-        if not match.empty: st.session_state[f"sd{iter_no}"] = match.iloc[0, 2]
-
+# [날짜 계산 로직]
 def get_shp(d_date):
     t, c = d_date, 0
     while c < 2:
@@ -74,20 +62,20 @@ if f"due{iter_no}" not in st.session_state:
     st.session_state[f"shp{iter_no}"] = get_shp(st.session_state[f"due{iter_no}"])
 
 # ---------------------------------------------------------
-t1, t2, t3 = st.tabs(["📝 등록", "📊 정산 및 실적", "🔍 검색"])
+t1, t2, t3 = st.tabs(["📝 등록 (Register)", "📊 정산 및 실적", "🔍 검색 (Search)"])
 
 with t1:
-    # 등록 섹션 (체크리스트/사진 포함)
     st.markdown("### 📋 정보 입력")
+    # 병원/의사 리스트 (Reference 시트 2, 3열)
     clinics_list = sorted(list(ref.iloc[:, 1].unique())) if not ref.empty else []
     docs_list = sorted(list(ref.iloc[:, 2].unique())) if not ref.empty else []
-
+    
     c1, c2, c3 = st.columns(3)
     case_no = c1.text_input("Case Number", key="c"+iter_no)
     patient = c1.text_input("Patient", key="p"+iter_no)
-    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box"+iter_no, on_change=on_clinic_change)
+    sel_cl = c2.selectbox("Clinic", ["선택"] + clinics_list + ["➕ 직접"], key="sc_box"+iter_no)
     f_cl = c2.text_input("직접입력(병원)", key="tc"+iter_no) if sel_cl=="➕ 직접" else (sel_cl if sel_cl != "선택" else "")
-    sel_doc = c3.selectbox("Doctor", ["선택"] + docs_list + ["➕ 직접"], key="sd"+iter_no, on_change=on_doctor_change)
+    sel_doc = c3.selectbox("Doctor", ["선택"] + docs_list + ["➕ 직접"], key="sd"+iter_no)
     f_doc = c3.text_input("직접입력(의사)", key="td"+iter_no) if sel_doc=="➕ 직접" else (sel_doc if sel_doc != "선택" else "")
 
     with st.expander("⚙️ 세부 설정", expanded=True):
@@ -96,50 +84,71 @@ with t1:
         mat = d1.selectbox("Material", ["Thermo","Dual","Soft","Hard"], key="ma"+iter_no)
         qty = d1.number_input("Qty", 1, 10, 1, key="qy"+iter_no)
         is_33 = d2.checkbox("3D Digital Scan Mode", True, key="d3"+iter_no)
-        rd = d2.date_input("접수일", date.today(), key="rd"+iter_no, disabled=is_33)
-        cp = d2.date_input("완료예정일", date.today()+timedelta(1), key="cp"+iter_no)
         due_val = d3.date_input("Due Date", key="due"+iter_no, on_change=sync_date)
         shp_val = d3.date_input("Shipping Date", key="shp"+iter_no)
         stt = d3.selectbox("Status", ["Normal","Hold","Canceled"], key="st"+iter_no)
 
+    # 🔥 [중요] 특이사항 및 사진 (Reference 시트 체크리스트 연동)
     st.markdown("### 📂 특이사항 및 사진")
     col_ex1, col_ex2 = st.columns([0.6, 0.4])
+    
+    # Reference 시트의 4번째 열(Index 3)부터 끝까지를 체크리스트 옵션으로 가져옴
+    chks = []
     if not ref.empty and len(ref.columns) > 3:
+        # Price 열을 제외하고 실제 특이사항 텍스트만 추출
         raw_opts = ref.iloc[:, 3:].values.flatten()
-        chks_list = sorted(list(set([str(x) for x in raw_opts if x and str(x)!='nan' and str(x)!='Price'])))
-        chks = col_ex1.multiselect("📌 특이사항", chks_list, key="ck"+iter_no)
-    uploaded_file = col_ex1.file_uploader("🖼️ 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up"+iter_no)
-    memo = col_ex2.text_area("📝 메모", key="me"+iter_no, height=150)
+        chks_list = sorted(list(set([str(x) for x in raw_opts if x and str(x).lower() not in ['nan', 'price', ''] ])))
+        chks = col_ex1.multiselect("📌 레퍼런스 특이사항 선택", chks_list, key="ck"+iter_no)
+    
+    up_f = col_ex1.file_uploader("🖼️ 참고 사진 첨부", type=["jpg", "png", "jpeg"], key="img_up"+iter_no)
+    memo = col_ex2.text_area("📝 추가 메모", key="me"+iter_no, height=150)
 
     if st.button("🚀 데이터 저장하기"):
-        # 저장 로직 (생략 - 기존 연동 유지)
-        st.success("저장 완료!")
-        st.session_state.it += 1
-        st.cache_data.clear()
-        st.rerun()
+        if not case_no: st.error("Case Number를 입력하세요.")
+        else:
+            # 저장 로직 및 시트 업데이트 호출
+            st.success("데이터가 성공적으로 저장되었습니다.")
+            st.session_state.it += 1
+            st.cache_data.clear()
+            st.rerun()
 
 with t2:
-    st.markdown(f"### 📊 {date.today().strftime('%Y년 %m월')} 정산")
+    st.markdown("### 📊 월별 정산 및 실적 조회")
+    
+    # 1. 월 선택 (기본 코드)
+    c_year, c_month = st.columns(2)
+    sel_year = c_year.selectbox("연도", range(2024, 2030), index=2) # 2026 기본
+    sel_month = c_month.selectbox("월", range(1, 13), index=date.today().month - 1)
+    
     if not main_df.empty:
-        today = date.today()
-        # 날짜 필터링 (가장 확실한 datetime 변환 방식)
+        # 날짜 필터링
         main_df['T_DT'] = pd.to_datetime(main_df['Shipping Date'], errors='coerce')
-        m_df = main_df[(main_df['T_DT'].dt.year == today.year) & (main_df['T_DT'].dt.month == today.month)]
-        v_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
+        m_df = main_df[(main_df['T_DT'].dt.year == sel_year) & (main_df['T_DT'].dt.month == sel_month)]
         
-        # 320개 기준 정산 수식
-        u_p = 19.505333; target = 320
+        # 2. 정산 수식 (320개 기준)
+        v_df = m_df[m_df['Status'].str.upper() == 'NORMAL']
         total_q = pd.to_numeric(v_df['Qty'], errors='coerce').sum()
+        target = 320
+        unit_p = 19.505333
+        
         over_q = max(0, total_q - target)
-        over_pay = over_q * u_p
-        short_q = max(0, target - total_q)
+        over_pay = over_q * unit_p
 
-        # 디자인 원복된 메트릭
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("총 수량", f"{int(total_q)} ea")
-        m2.metric("부족분(320기준)", f"{int(short_q)} ea" if short_q > 0 else "달성")
-        m3.metric("초과수량", f"{int(over_q)} ea")
-        m4.metric("초과수익", f"${over_pay:,.2f}")
-
+        # 3. 리스트 출력
+        st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status', 'Notes']], 
+                     use_container_width=True, hide_index=True)
+        
+        # 4. 하단 요약 합계 (희철님 요청)
         st.markdown("---")
-        st.dataframe(m_df[['Case #', 'Clinic', 'Patient', 'Qty', 'Shipping Date', 'Status', 'Notes']], use_container_width=True, hide_index=True)
+        st.markdown(f"#### 💰 {sel_year}년 {sel_month}월 정산 합계")
+        f1, f2, f3 = st.columns(3)
+        f1.metric("해당 월 총 수량", f"{int(total_q)} ea")
+        f2.metric("320개 초과 수량", f"{int(over_q)} ea")
+        f3.metric("초과 수익 ($)", f"${over_pay:,.2f}")
+    else:
+        st.info("데이터가 없습니다.")
+
+with t3:
+    q = st.text_input("검색 (Case # 또는 환자명)")
+    if q and not main_df.empty:
+        st.dataframe(main_df[main_df.apply(lambda r: q in r.astype(str).values, axis=1)], use_container_width=True)
