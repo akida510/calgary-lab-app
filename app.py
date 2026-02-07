@@ -35,11 +35,11 @@ st.markdown("""
     .invoice-overlay { background-color: rgba(0,0,0,0.95); padding: 30px; display: flex; justify-content: center; }
     .invoice-paper {
         background-color: #ffffff !important; width: 100%; max-width: 780px; 
-        min-height: 1050px; padding: 50px; border: 2px solid #000; margin: 0 auto;
+        min-height: 1000px; padding: 60px; border: 1.5px solid #000; margin: 0 auto;
         display: flex; flex-direction: column; color: #000 !important; box-sizing: border-box;
     }
     .invoice-paper * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-family: 'Arial', sans-serif !important; }
-    .notice-box { border: 1px solid black; padding: 12px; text-align: center; font-size: 10px; line-height: 1.4; margin-top: 20px; }
+    .notice-box { border: 1.5px solid black; padding: 15px; text-align: center; font-size: 11px; line-height: 1.4; margin-top: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -49,8 +49,8 @@ if 'inv_counter' not in st.session_state: st.session_state.inv_counter = 162084
 if 'active_invoice' not in st.session_state: st.session_state.active_invoice = None
 
 ref_data = pd.DataFrame([
-    {"Clinic": "My Smile Family Dental", "Dr": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Region": "Courier"},
-    {"Clinic": "Calgary Central Dental", "Dr": "Dr. Lana Huynh", "Address": "205-7136 11 St NE, Calgary, AB", "Region": "Local"}
+    {"Clinic": "My Smile Family Dental", "Dr": "Dr. Arshpreet Kaur", "Address": "13510 127 St NW", "City": "Edmonton, Alberta T5L 1B9", "Phone": "(780) 455-6806"},
+    {"Clinic": "Calgary Central Dental", "Dr": "Dr. Lana Huynh", "Address": "205-7136 11 St NE", "City": "Calgary, AB T2E 4Y9", "Phone": "(403) 970-0600"}
 ])
 all_clinics = sorted(ref_data["Clinic"].unique().tolist())
 all_doctors = sorted(ref_data["Dr"].unique().tolist())
@@ -78,15 +78,11 @@ tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트", "🔍 검색"])
 
 with tab1:
     st.markdown("### 📋 케이스 등록")
-    
-    # st.form을 사용하여 저장 후 자동 지우기 구현
     with st.form("input_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
             case_no = st.text_input("Case No (팬번호)")
             patient = st.text_input("Patient (환자명)")
-            
-            # 의사명/병원명 연동 로직
             sel_dr = st.selectbox("Dr (의사명) 선택", ["선택 안 함"] + all_doctors)
             input_dr = st.text_input("Dr (의사명) 직접입력")
             final_dr = input_dr if input_dr else (sel_dr if sel_dr != "선택 안 함" else "")
@@ -94,51 +90,40 @@ with tab1:
             auto_clinic = ""
             if final_dr in ref_data["Dr"].values:
                 auto_clinic = ref_data[ref_data["Dr"] == final_dr]["Clinic"].iloc[0]
-            
             sel_cln = st.selectbox("Clinic (병원명)", ["선택 안 함"] + all_clinics, 
                                    index=all_clinics.index(auto_clinic)+1 if auto_clinic in all_clinics else 0)
             
         with c2:
-            model_type = st.radio("접수 형태", ["3D 디지털 스캔", "일반 모델"], index=0, horizontal=True)
-            
-            # 일반 모델일 때만 날짜 선택 (기본 '-' 표시 로직 처리)
-            model_date = "-"
-            if model_type == "일반 모델":
-                model_date_input = st.date_input("접수 날짜", value=date.today())
-                model_date = model_date_input.strftime('%Y-%m-%d')
-            
             mat = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
             arc = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
-            due = st.date_input("Due Date (요청일)", date.today() + timedelta(days=7))
+            inv_date = st.date_input("Invoice Date (인보이스 날짜)", value=date.today())
 
         submit = st.form_submit_button("💾 모든 정보 저장")
-        
         if submit:
             if case_no and sel_cln != "선택 안 함":
-                clinic_info = ref_data[ref_data["Clinic"] == sel_cln].iloc[0] if sel_cln in ref_data["Clinic"].values else {"Address": "", "Region": "Local"}
-                
+                c_info = ref_data[ref_data["Clinic"] == sel_cln].iloc[0] if sel_cln in ref_data["Clinic"].values else {"Address": "", "City": "", "Phone": ""}
                 st.session_state.db.append({
                     "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient,
-                    "Clinic": sel_cln, "Dr": final_dr, "Address": clinic_info.get("Address", ""),
-                    "Material": mat, "Arch": arc, "Model": model_type, "ModelDate": model_date,
-                    "Due": due.strftime('%Y-%m-%d'), "Date": date.today().strftime('%Y-%m-%d')
+                    "Clinic": sel_cln, "Dr": final_dr, 
+                    "Address": c_info.get("Address", ""), "City": c_info.get("City", ""), "Phone": c_info.get("Phone", ""),
+                    "Material": mat, "Arch": arc,
+                    "Date": inv_date.strftime('%-m/%-d/%Y')
                 })
                 st.session_state.inv_counter += 1
-                st.success(f"저장 완료! Case {case_no}")
-                st.rerun() # 저장 후 상태 갱신 및 커서 이동(초기화) 효과
+                st.success(f"저장 완료!")
+                st.rerun()
 
 with tab2:
     for i, row in enumerate(st.session_state.db):
-        col1, col2, col3 = st.columns([3, 1.5, 1])
-        col1.write(f"**{row['Case No']}** | {row['Patient']} ({row['Clinic']})")
-        col2.write(f"📅 {row.get('Model', '')}: {row.get('ModelDate', '-')}")
-        if col3.button("🔍 Invoice", key=f"v_{i}"): st.session_state.active_invoice = row
+        col1, col2 = st.columns([4, 1])
+        col1.write(f"**No. {row['Inv_No']}** | {row['Patient']} ({row['Clinic']})")
+        if col2.button("🔍 Invoice", key=f"v_{i}"): st.session_state.active_invoice = row
 
 with tab3:
     sq = st.text_input("검색 (환자, 병원, 의사명)")
     if sq:
         res = [r for r in st.session_state.db if sq.lower() in str(r).lower()]
-        for r in res: st.write(f"✅ {r['Case No']} | {r['Patient']} | {r.get('Dr', 'N/A')} | {r.get('Due', '')}")
+        for r in res: st.write(f"✅ {r['Case No']} | {r['Patient']} | {r.get('Dr', 'N/A')}")
 
 # [5. 인보이스 미리보기]
 if st.session_state.active_invoice:
@@ -146,47 +131,68 @@ if st.session_state.active_invoice:
     if st.button("❌ 닫기"): st.session_state.active_invoice = None; st.rerun()
     inv = st.session_state.active_invoice
     
-    # KeyError 방지를 위한 .get() 사용
-    inv_dr = inv.get('Dr', 'N/A')
-    inv_cln = inv.get('Clinic', 'N/A')
-    inv_addr = inv.get('Address', '')
-    
     st.markdown(f"""
     <div class="invoice-overlay">
         <div class="invoice-paper">
-            <div class="invoice-header">
-                <div style="display: flex; justify-content: space-between;">
-                    <div>
-                        <p style="font-size:9px; font-weight:bold; margin:0;">DENTAL TECHNOLOGY LTD</p>
-                        <h1 style="font-size: 42px; font-weight: 900; font-style: italic; color: #1a4e8a; margin:0;">skycad</h1>
-                        <p style="font-size:11px; margin-top:5px;">Skycad AB | (403) 970-0600<br>205-7136 11 St NE, Calgary, AB</p>
-                    </div>
-                    <div style="text-align: right;">
-                        <h1 style="font-size:30px; font-weight:400; margin:0;">INVOICE</h1>
-                        <p style="margin:5px 0; font-size:12px;">No. {inv['Inv_No']} | {inv.get('Date', '')}</p>
-                        <div style="text-align:left; font-size:11px; border-top:1px solid #000; padding-top:5px; margin-top:10px;">
-                            <b>Ship To:</b><br>{inv_cln}<br>{inv_dr}<br>{inv_addr}
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <div style="display:flex; align-items:center;">
+                        <div style="line-height:1;">
+                            <span style="font-size:8px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
+                            <span style="font-size:38px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-2px;">skycad</span>
                         </div>
                     </div>
+                    <div style="font-size:11px; margin-top:10px; line-height:1.3;">
+                        <b>Skycad AB</b><br>
+                        205-7136 11 St NE<br>
+                        Calgary, AB T2E 4Y9<br>
+                        (403) 970-0600
+                    </div>
                 </div>
-                <div style="margin-top: 25px; padding: 10px 0; border-top: 1.5px solid black; border-bottom: 1.5px solid black; font-size: 15px; font-weight: bold;">
-                    Patient: &nbsp; {inv['Patient'].upper()}
+                <div style="text-align: right; line-height:1.2;">
+                    <h1 style="font-size:32px; font-weight:400; margin:0; letter-spacing:1px;">INVOICE</h1>
+                    <p style="font-size:12px; margin:5px 0;">No. {inv['Inv_No']}<br>{inv['Date']}</p>
+                    <div style="text-align:left; font-size:11px; margin-top:15px;">
+                        <b>Ship To:</b><br>
+                        {inv['Clinic']}<br>
+                        {inv.get('Dr', '')}<br>
+                        {inv.get('Address', '')}<br>
+                        {inv.get('City', '')}<br>
+                        {inv.get('Phone', '')}
+                    </div>
                 </div>
             </div>
-            <div class="invoice-body">
+
+            <div style="margin-top: 40px; padding: 10px 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: 13px;">
+                <b>Patient:</b> {inv['Patient'].upper()}
+            </div>
+
+            <div style="flex: 1; margin-top: 20px;">
                 <table style="width: 100%; border-collapse: collapse;">
-                    <thead><tr><th style="text-align:left; border-bottom: 1px solid black; padding-bottom: 5px;">Description</th><th style="text-align:right; border-bottom: 1px solid black; padding-bottom: 5px;">Amount</th></tr></thead>
-                    <tbody><tr><td style="padding:40px 0;">Nightguard ({inv['Material']}) {inv['Arch']}<br>
-                    <small style="color:#666;">Type: {inv.get('Model', '')} ({inv.get('ModelDate', '-')})</small></td><td style="text-align:right;">$180.00</td></tr></tbody>
+                    <thead>
+                        <tr style="border-bottom: 1px solid #000;">
+                            <th style="text-align:left; padding-bottom: 5px; font-size:12px; text-decoration:underline;">Description</th>
+                            <th style="text-align:right; padding-bottom: 5px; font-size:12px; text-decoration:underline;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding:20px 0; font-size: 13px;">Nightguard ({inv['Material']}) {inv['Arch']}</td>
+                            <td style="text-align:right; font-size: 13px;">$180.00</td>
+                        </tr>
+                    </tbody>
                 </table>
             </div>
-            <div class="invoice-footer">
-                <div style="display:flex; justify-content:space-between; font-size:14px; border-top:1px solid #ddd; padding-top:10px; margin-bottom:10px;">
-                    <div>Case: {inv['Case No']} | Due: {inv.get('Due', '')}</div><div style="font-weight:bold;">Total: $180.00</div>
+
+            <div style="border-top: 1px solid #000; padding-top: 10px;">
+                <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:bold;">
+                    <div>ET12</div>
+                    <div>Total: $180.00</div>
                 </div>
+                
                 <div class="notice-box">
-                    <b>All dental products are custom made in Canada.</b><br>
-                    Payment is due within 30 days. Overdue balances are subject to 1.5% monthly finance charge. Thank you.
+                    <u style="font-weight:bold; font-size:13px;">All dental products we offer are custom made in Canada.</u><br><br>
+                    Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.
                 </div>
             </div>
         </div>
