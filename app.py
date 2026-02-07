@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [디자인 설정] 희철님 원본 스타일 테마 및 레이아웃
+# [수정 금지] 디자인 설정 및 테마 강제 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -35,19 +35,19 @@ st.markdown("""
         color: white !important; font-weight: bold; border-radius: 5px; 
     }
 
-    /* 리스트 완료 버튼 (작고 세련되게) */
+    /* 리스트 내 완료 버튼 (슬림 스타일) */
     div[data-testid="column"] .stButton>button {
         height: 24px !important; line-height: 24px !important;
-        font-size: 10px !important; padding: 0px 10px !important;
+        font-size: 11px !important; padding: 0px 12px !important;
         background-color: #2b3a67 !important; border: 1px solid #4c6ef5 !important;
-        margin-top: 5px; min-height: 24px !important; width: auto !important;
+        min-height: 24px !important; width: auto !important; margin-top: 5px;
     }
 
     /* [인보이스 전용] 실제 종이 사진 레이아웃 재현 */
     .invoice-card {
         background-color: white !important; padding: 40px; 
         border: 2px solid black !important; /* 사진 속 굵은 테두리 */
-        font-family: Arial, sans-serif; min-height: 950px;
+        font-family: Arial, sans-serif; min-height: 980px; margin: 10px auto;
     }
     .invoice-card * { color: black !important; border-color: black !important; }
 
@@ -73,12 +73,12 @@ def get_business_day(start_date, days_to_subtract):
         if current_date.weekday() < 5: days_to_subtract -= 1
     return current_date
 
-# 상단 문구 고정
-st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800; color:white !important;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px; color:white !important;">Designed by Heechul Jung</div></div>', unsafe_allow_html=True)
+# 상단 문구 복구 및 고정
+st.markdown('<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Designed by Heechul Jung</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
-# --- Tab 1: 케이스 등록 (희철님 원본 코드 절대 고정) ---
+# --- Tab 1: 케이스 등록 (희철님 원본 그대로) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
@@ -113,14 +113,13 @@ with tab1:
         else:
             c_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
-                "Doctor": sel_doctor, "Material": material, "Arch": arch,
-                "Lab Done": lab_done_date, "Status": "Pending",
+                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, "Doctor": sel_doctor,
+                "Material": material, "Arch": arch, "Lab Done": lab_done_date, "Status": "Pending",
                 "Addr": c_info['Addr'], "City": c_info['City'], "Phone": c_info['Phone']
             })
             st.success("등록 완료!")
 
-# --- Tab 2: 인보이스 처리 ---
+# --- Tab 2: 리스트 및 세련된 인보이스 ---
 with tab2:
     if not st.session_state.db: st.info("대기 케이스가 없습니다.")
     else:
@@ -129,21 +128,21 @@ with tab2:
             with c_info: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
             with c_btn:
                 if st.button("완료/출력", key=f"inv_{i}"):
-                    st.session_state.selected_invoice = st.session_state.db[i]
+                    st.session_state.selected_invoice = row
                     st.rerun()
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        # [사진과 동일한 레이아웃] 서명란 삭제, 테두리 추가, 금액 고정
-        st.markdown(f"""
+        # [코드 노출 해결] 안전한 방식으로 HTML 조립
+        invoice_body = f"""
         <div class="invoice-card">
             <table style="width: 100%; border: none;">
                 <tr>
                     <td style="width: 55%; vertical-align: top;">
                         <div style="font-size: 11px; font-weight: bold; color: #1a4e8a !important; font-style: italic;">DENTAL TECHNOLOGY Ltd</div>
                         <div style="font-size: 65px; font-weight: 900; font-style: italic; color: #1a4e8a !important; line-height: 0.8; letter-spacing: -3px;">skycad</div>
-                        <div style="margin-top: 20px; font-size: 13px; line-height: 1.2;">
+                        <div style="margin-top: 15px; font-size: 13px; line-height: 1.2;">
                             <b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600
                         </div>
                     </td>
@@ -157,7 +156,7 @@ with tab2:
                 </tr>
             </table>
 
-            <div style="margin: 50px 0 15px 0; font-size: 16px; border-bottom: 2px solid black; padding-bottom: 8px;">
+            <div style="margin: 60px 0 15px 0; font-size: 16px; border-bottom: 2px solid black; padding-bottom: 8px;">
                 <b>Patient:</b> {str(inv['Patient']).upper()}
             </div>
 
@@ -180,17 +179,17 @@ with tab2:
             </div>
 
             <div style="margin-top: 100px; text-align: center;">
-                <div style="font-size: 17px; font-weight: bold; text-decoration: underline; margin-bottom: 20px;">
+                <div style="font-size: 17px; font-weight: bold; text-decoration: underline; margin-bottom: 18px;">
                     All dental products we offer are custom made in Canada.
                 </div>
-                <div style="font-size: 11px; line-height: 1.7; padding: 0 40px; font-weight: 500;">
+                <div style="font-size: 11px; line-height: 1.6; padding: 0 40px; font-weight: 500;">
                     Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.
                 </div>
             </div>
         </div>
-        """, unsafe_allow_html=True)
-        
+        """
+        st.markdown(invoice_body, unsafe_allow_html=True)
         if st.button("🖨️ 인쇄 (Print Invoice)"):
             st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
 
-with tab3: st.write("Search...")
+with tab3: st.write("검색 기능")
