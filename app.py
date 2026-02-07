@@ -21,11 +21,19 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
+    
+    /* 버튼 사이즈 조정 (지나치게 큰 버튼 방지) */
     .stButton>button { 
-        width: 100%; height: 3.5em; background-color: #4c6ef5 !important; 
+        width: 100%; height: 2.8em !important; background-color: #4c6ef5 !important; 
         color: white !important; font-weight: bold; border-radius: 5px; 
     }
     
+    /* 인센티브 현황판 스타일 */
+    .stat-card {
+        background-color: #1a1c24; padding: 20px; border-radius: 10px;
+        border: 1px solid #30363d; margin-top: 20px;
+    }
+
     /* 인보이스 디자인 - 레터지 비율 및 박스 */
     .inv-outer-container {
         display: flex; justify-content: center; padding: 20px 0; background-color: #333;
@@ -37,19 +45,16 @@ st.markdown("""
         font-family: 'Arial', sans-serif;
     }
     .invoice-letter * { color: black !important; line-height: 1.2; }
-    .notice-box {
-        border: 1.5px solid black; padding: 10px; margin-top: 20px;
-        font-size: 11px; text-align: left;
-    }
+    
     @media print {
-        .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
+        .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider, .stat-card { display: none !important; }
         .inv-outer-container { padding: 0; background: white; }
         .invoice-letter { border: none; width: 100%; padding: 0; margin: 0; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# [2. 데이터 및 세션 관리]
+# [2. 데이터 관리]
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 if 'inv_counter' not in st.session_state: st.session_state.inv_counter = 162084
@@ -71,7 +76,7 @@ st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-we
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
-# --- Tab 1: 케이스 등록 ---
+# --- Tab 1: 케이스 등록 (기존 로직 100% 유지) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
@@ -111,18 +116,26 @@ with tab1:
                 "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
                 "Doctor": sel_doctor, "Material": material, "Arch": arch, "Status": "Pending",
                 "Address": c_info.get("Address", ""), "City": c_info.get("City", ""), "Phone": c_info.get("Phone", ""),
-                "Inv_Date": today.strftime('%m/%d/%Y'), "Due": due_date
+                "Inv_Date": today.strftime('%m/%d/%Y'), "Due": due_date, "Month": today.strftime('%Y-%m')
             })
             st.session_state.inv_counter += 1
             st.success(f"{case_no}번 저장 완료!")
 
-# --- Tab 2: 리스트 (KeyError 방어) ---
+# --- Tab 2: 리스트 및 수량 관리 ---
 with tab2:
     st.subheader("📊 작업 진행 리스트")
+    
+    # 작업 통계 계산 (이번 달 기준)
+    this_month = date.today().strftime('%Y-%m')
+    monthly_cases = [r for r in st.session_state.db if r.get('Month') == this_month]
+    total_count = len(monthly_cases)
+    over_count = max(0, total_count - 320)
+    extra_pre_tax = over_count * 30
+    extra_post_tax = over_count * 19.5
+
     for i, row in enumerate(st.session_state.db):
-        c_info, c_btn = st.columns([4, 1])
+        c_info, c_btn = st.columns([4, 1.2]) # 버튼 컬럼 살짝 조절
         with c_info:
-            # row.get('Status')를 사용하여 키가 없어도 에러 안 나게 함
             curr_status = row.get('Status', 'Pending')
             st.markdown(f"**{'🟡' if curr_status=='Pending' else '🟢'} {row.get('Case No','-')}** | {row.get('Patient','-')} | {row.get('Clinic','-')} | Due: {row.get('Due','-')}")
         with c_btn:
@@ -132,17 +145,20 @@ with tab2:
                     st.session_state.selected_invoice = st.session_state.db[i]
                     st.rerun()
             else:
+                # 버튼 크기를 적절하게 조절 (st.button 기본 스타일 사용)
                 if st.button("재출력", key=f"re_{i}"):
                     st.session_state.selected_invoice = st.session_state.db[i]
                     st.rerun()
 
+    # 인보이스 출력 영역
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        if st.button("❌ 인보이스 닫기"):
+        if st.button("닫기 (Close Invoice)", use_container_width=False):
             st.session_state.selected_invoice = None
             st.rerun()
-
+        
+        # [인보이스 디자인 - 사진 기준 재현]
         st.markdown(f"""
         <div class="inv-outer-container">
             <div class="invoice-letter">
@@ -169,35 +185,39 @@ with tab2:
                 </div>
                 <div style="height: 380px; margin-top: 30px;">
                     <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid black;">
-                                <th style="text-align:left; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Description</th>
-                                <th style="text-align:right; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td style="padding:25px 0; font-size: 14px;">Nightguard ({inv.get('Material','')}) {inv.get('Arch','')}</td>
-                                <td style="text-align:right; font-size: 14px; font-weight:bold;">$180.00</td>
-                            </tr>
-                        </tbody>
+                        <thead><tr style="border-bottom: 1px solid black;">
+                            <th style="text-align:left; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Description</th>
+                            <th style="text-align:right; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Amount</th>
+                        </tr></thead>
+                        <tbody><tr>
+                            <td style="padding:25px 0; font-size: 14px;">Nightguard ({inv.get('Material','')}) {inv.get('Arch','')}</td>
+                            <td style="text-align:right; font-size: 14px; font-weight:bold;">$180.00</td>
+                        </tr></tbody>
                     </table>
                 </div>
                 <div style="border-top: 1.5px solid black; padding-top: 15px;">
                     <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:bold;">
-                        <div>{inv.get('Case No','')}</div>
-                        <div style="font-size:15px;">Total: $180.00</div>
-                    </div>
-                    <div class="notice-box">
-                        <u style="font-weight:bold; font-size:13px;">All dental products we offer are custom made in Canada.</u><br><br>
-                        Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.
+                        <div>Case: {inv.get('Case No','')}</div><div style="font-size:15px;">Total: $180.00</div>
                     </div>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-
-        if st.button("🖨️ 인쇄 (Print PDF)"):
+        if st.button("인쇄 (Print)", use_container_width=False):
             st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
+
+    # [수량 및 인센티브 현황판]
+    st.markdown(f"""
+    <div class="stat-card">
+        <h4 style="margin-top:0; color:#4c6ef5;">📅 {this_month} 작업 현황</h4>
+        <div style="display: flex; gap: 40px;">
+            <div><p style="margin:0; font-size:12px; color:#aaa;">총 수량</p><p style="font-size:24px; font-weight:bold;">{total_count} / 320</p></div>
+            <div><p style="margin:0; font-size:12px; color:#aaa;">초과 수량</p><p style="font-size:24px; font-weight:bold; color:#f03e3e;">{over_count} 개</p></div>
+            <div><p style="margin:0; font-size:12px; color:#aaa;">추가 인센티브 (Pre-tax / Post-tax)</p>
+                 <p style="font-size:24px; font-weight:bold; color:#37b24d;">${extra_pre_tax:,.1f} / <span style="font-size:18px;">${extra_post_tax:,.1f}</span></p>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 with tab3: st.write("🔍 검색 기능 구현 예정")
