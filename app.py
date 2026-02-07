@@ -7,10 +7,8 @@ st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
-    /* 전체 배경 */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     
-    /* 입력창 스타일 */
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
@@ -26,24 +24,24 @@ st.markdown("""
         margin-bottom: 25px; border: 1px solid #30363d;
     }
 
-    /* 버튼 스타일 수정: 높이와 글자 크기를 세트로 줄여 세련되게 */
-    .stButton>button { 
-        width: 100%; 
-        height: 2.2em !important; 
-        background-color: #2b3a67 !important; /* 촌스럽지 않은 다크블루 */
-        color: #dbe4ff !important; 
-        font-size: 12px !important; /* 글자 크기 축소 */
-        font-weight: 500 !important; 
+    /* 완료/취소 버튼 세트 디자인 - 아주 얇고 세련되게 */
+    .slim-btn button {
+        height: 28px !important;
+        min-height: 28px !important;
+        line-height: 1 !important;
+        font-size: 11px !important;
+        padding: 0 10px !important;
+        background-color: #2b3a67 !important;
+        color: #dbe4ff !important;
         border: 1px solid #4c6ef5 !important;
         border-radius: 4px !important;
-        padding: 0 !important;
+        margin-top: 5px;
     }
-    .stButton>button:hover {
+    .slim-btn button:hover {
         background-color: #4c6ef5 !important;
         color: white !important;
     }
 
-    /* 인보이스 컨테이너 */
     .invoice-container {
         background-color: white !important; color: black !important; 
         padding: 40px; border-radius: 5px; font-family: 'Arial', sans-serif;
@@ -57,9 +55,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# [데이터 및 로직 - 등록창 원본 유지]
-# ---------------------------------------------------------
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -128,22 +123,27 @@ with tab2:
             with c_info:
                 st.markdown(f"**{'🟡' if row['Status']=='Pending' else '🟢'} {row['Case No']}** | {row['Patient']} | {row['Clinic']}")
             with c_btn:
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    if st.button("완료/인보이스출력", key=f"inv_{i}"):
+                # 슬림 버튼 적용
+                st.markdown('<div class="slim-btn">', unsafe_allow_html=True)
+                b1, b2 = st.columns(2)
+                with b1:
+                    if st.button("완료/출력", key=f"inv_{i}"):
                         st.session_state.db[i]['Status'] = "Completed"
                         st.session_state.selected_invoice = st.session_state.db[i]
                         st.rerun()
-                with col_btn2:
+                with b2:
                     if row['Status'] == "Completed":
                         if st.button("취소", key=f"un_{i}"):
                             st.session_state.db[i]['Status'] = "Pending"
                             st.session_state.selected_invoice = None
                             st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
+        # 보이지 않는 텍스트 30줄을 넣어 공간을 강제로 확보
+        ghost_lines = "<br>".join(["&nbsp;"] * 25)
         st.markdown(f"""
         <div class="invoice-container">
             <table style="width:100%; border-collapse:collapse;">
@@ -176,7 +176,7 @@ with tab2:
                     <tr>
                         <td style="padding:30px 5px 0 5px; vertical-align:top; font-size:16px;">
                             Nightguard ({inv['Material']}) - {inv['Arch']}
-                            <svg width="1" height="400" style="display:block;"><rect width="1" height="400" fill="none"/></svg>
+                            <div style="color:transparent; user-select:none;">{ghost_lines}</div>
                         </td>
                         <td style="padding:30px 5px; vertical-align:top; text-align:right; font-size:16px;">$180.00</td>
                     </tr>
