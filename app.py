@@ -45,7 +45,7 @@ st.markdown("""
     /* 인보이스 내 모든 텍스트 강제 검정색 */
     .invoice-paper * { color: #000000 !important; }
 
-    /* [모바일] 폰 화면에서 Letter 용지 전체가 보이도록 자동 축소 */
+    /* 모바일 축소 보기 */
     @media (max-width: 850px) {
         .invoice-container { justify-content: flex-start; padding-left: 10px; }
         .invoice-paper {
@@ -55,7 +55,6 @@ st.markdown("""
         }
     }
     
-    /* 인보이스 세부 디자인 */
     .inv-header { display: flex; justify-content: space-between; margin-bottom: 50px; }
     .logo-main { font-size: 55px; font-weight: 900; font-style: italic; color: #1a4e8a !important; letter-spacing: -3px; line-height: 1; margin:0; }
     .info-right { text-align: right; }
@@ -71,7 +70,6 @@ st.markdown("""
     .item-table th { border-bottom: 1px solid black; padding: 12px 0; text-align: left; font-size: 16px; }
     .item-table td { padding: 25px 0; font-size: 17px; }
 
-    /* 하단 안내문구 위치 고정 */
     .invoice-footer {
         position: absolute;
         bottom: 60px;
@@ -97,16 +95,22 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# [로직 영역]
+# [데이터베이스 및 참조 데이터]
 # ---------------------------------------------------------
-if 'db' not in st.session_state: st.session_state.db = []
-if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
+if 'db' not in st.session_state:
+    st.session_state.db = []
+if 'selected_invoice' not in st.session_state:
+    st.session_state.selected_invoice = None
 
+# 병원 데이터 (수정 가능)
 ref_data = pd.DataFrame([
     {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Address": "205-7136 11 St NE, Calgary, AB", "Phone": "(403) 970-0600"},
     {"Clinic": "My Smile Family Dental", "Doctor": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Phone": "(780) 455-6806"}
 ])
 
+# ---------------------------------------------------------
+# [앱 화면 구성]
+# ---------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["📝 Case Entry", "📊 Management", "🔍 Search"])
 
 with tab1:
@@ -115,28 +119,34 @@ with tab1:
     with c1:
         case_no = st.text_input("Case No", placeholder="e.g. IT30")
         patient = st.text_input("Patient Name")
-        clinics = sorted(ref_data['Clinic'].tolist())
-        sel_clinic = st.selectbox("Clinic", ["Select Clinic"] + clinics)
+        clinic_list = sorted(ref_data['Clinic'].tolist())
+        sel_clinic = st.selectbox("Clinic", ["Select Clinic"] + clinic_list)
     with c2:
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
 
     if st.button("💾 SAVE CASE"):
         if sel_clinic == "Select Clinic" or not case_no:
-            st.error("Please fill in all fields.")
+            st.error("Please fill in all required fields.")
         else:
             info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
-                "Doctor": info['Doctor'], "Address": info['Address'], "Phone": info['Phone'],
-                "Material": material, "Arch": arch
+                "Case No": case_no, 
+                "Patient": patient, 
+                "Clinic": sel_clinic, 
+                "Doctor": info['Doctor'], 
+                "Address": info['Address'], 
+                "Phone": info['Phone'],
+                "Material": material, 
+                "Arch": arch
             })
-            st.success("Successfully Saved.")
+            st.success("Case saved successfully.")
 
 with tab2:
     for i, row in enumerate(st.session_state.db):
         c_i, c_b = st.columns([4, 1])
-        with c_i: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
+        with c_i:
+            st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
         with c_b:
             if st.button("View Invoice", key=f"v_{i}"):
                 st.session_state.selected_invoice = st.session_state.db[i]
@@ -181,55 +191,7 @@ with tab2:
         """
         st.markdown(invoice_html, unsafe_allow_html=True)
         if st.button("🖨️ PRINT INVOICE"):
-            st.write('<script>window.print();</script>', unsafe_allow_html=True)gion": "Local"},
-    {"Clinic": "My Smile Family Dental", "Doctor": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Phone": "(780) 455-6806", "Region": "Courier"}
-])
-
-tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트/완료", "🔍 검색"])
-
-with tab1:
-    st.markdown("### 📋 기본정보입력")
-    c1, c2 = st.columns(2)
-    with c1:
-        case_no = st.text_input("Case No", placeholder="예: IT30")
-        patient = st.text_input("Patient")
-        clinics = sorted(list(set(ref_data['Clinic'].tolist())))
-        sel_clinic = st.selectbox("Clinic", ["선택"] + clinics)
-        docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
-        sel_doctor = st.selectbox("Doctor", ["선택"] + docs)
-    with c2:
-        is_3d = st.checkbox("3D Model", value=True)
-        today = date.today()
-        material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
-        arch = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
-
-    if st.button("💾 저장 및 등록"):
-        if sel_clinic == "선택" or not case_no:
-            st.error("정보를 입력하세요.")
-        else:
-            info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
-            st.session_state.db.append({
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
-                "Doctor": sel_doctor, "Address": info['Address'], "Phone": info['Phone'],
-                "Material": material, "Arch": arch
-            })
-            st.success("등록 완료!")
-
-with tab2:
-    for i, row in enumerate(st.session_state.db):
-        c_i, c_b = st.columns([4, 1])
-        with c_i: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
-        with c_b:
-            if st.button("인보이스 보기", key=f"v_{i}"):
-                st.session_state.selected_invoice = st.session_state.db[i]
-                st.rerun()
-
-    if st.session_state.selected_invoice:
-        inv = st.session_state.selected_invoice
-        st.divider()
-        
-        invoice_html = f"""
-        <div class="invoice-container">
+            st.write('<script>window.print();</script>', unsafe_allow_html=True)invoice-container">
             <div class="invoice-paper">
                 <div class="inv-header">
                     <div>
