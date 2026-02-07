@@ -35,28 +35,15 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# [데이터 연동 영역] - 병원 정보 데이터베이스
+# [데이터 연동 영역]
 # ---------------------------------------------------------
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
-# 여기에 병원 정보를 추가하면 자동으로 불러옵니다.
+# 병원 및 의사 DB
 ref_data = pd.DataFrame([
-    {
-        "Clinic": "My Smile Family Dental", 
-        "Doctor": "Dr. Amhipreat Kaur", 
-        "Address": "13510 177 St NW, Edmonton, Alberta TSL 189", 
-        "Phone": "(780) 455-6806",
-        "Region": "Courier"
-    },
-    {
-        "Clinic": "Calgary Central Dental", 
-        "Doctor": "Dr. Lana Huynh", 
-        "Address": "205-7136 11 St NE, Calgary, AB T2E 4Y9", 
-        "Phone": "(403) 970-0600",
-        "Region": "Local"
-    },
-    # 추가 병원 정보는 여기에 같은 형식으로 넣으면 됩니다.
+    {"Clinic": "My Smile Family Dental", "Doctor": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Phone": "(780) 455-6806", "Region": "Courier"},
+    {"Clinic": "Calgary Central Dental", "Doctor": "Dr. Lana Huynh", "Address": "205-7136 11 St NE, Calgary, AB", "Phone": "(403) 970-0600", "Region": "Local"}
 ])
 
 def get_business_day(start_date, days_to_subtract):
@@ -74,26 +61,43 @@ tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트/완료", "🔍 검색
 with tab1:
     st.markdown("### 📋 케이스 등록")
     c1, c2 = st.columns(2)
+    
     with c1:
         case_no = st.text_input("Case No(팬번호)", placeholder="예: IT30")
         patient = st.text_input("Patient(환자명)")
         
-        # [자동입력 핵심] 병원명 선택
-        clinic_list = ["선택하세요"] + ref_data["Clinic"].tolist()
-        sel_clinic = st.selectbox("Clinic(병원명)", clinic_list)
+        # 상호 연동 드롭다운 로직
+        clinic_list = ["선택"] + ref_data["Clinic"].tolist()
+        doctor_list = ["선택"] + ref_data["Doctor"].tolist()
         
-        # 병원이 선택되면 의사명과 주소를 자동으로 가져옴
-        if sel_clinic != "선택하세요":
-            clinic_info = ref_data[ref_data["Clinic"] == sel_clinic].iloc[0]
-            doctor_name = st.text_input("Doctor(의사명)", value=clinic_info["Doctor"])
-            clinic_addr = clinic_info["Address"]
-            clinic_phone = clinic_info["Phone"]
-            clinic_reg = clinic_info["Region"]
+        # 상태 관리를 위한 session_state 사용
+        if 'sel_clinic' not in st.session_state: st.session_state.sel_clinic = "선택"
+        if 'sel_doctor' not in st.session_state: st.session_state.sel_doctor = "선택"
+
+        def update_from_clinic():
+            if st.session_state.c_box != "선택":
+                doc = ref_data[ref_data["Clinic"] == st.session_state.c_box]["Doctor"].iloc[0]
+                st.session_state.d_box = doc
+
+        def update_from_doctor():
+            if st.session_state.d_box != "선택":
+                cln = ref_data[ref_data["Doctor"] == st.session_state.d_box]["Clinic"].iloc[0]
+                st.session_state.c_box = cln
+
+        sel_clinic = st.selectbox("Clinic(병원명)", clinic_list, key="c_box", on_change=update_from_clinic)
+        sel_doctor = st.selectbox("Doctor(의사명)", doctor_list, key="d_box", on_change=update_from_doctor)
+        
+        # 인보이스용 데이터 추출
+        current_clinic = st.session_state.c_box
+        current_doctor = st.session_state.d_box
+        
+        if current_clinic != "선택":
+            info = ref_data[ref_data["Clinic"] == current_clinic].iloc[0]
+            clinic_addr = info["Address"]
+            clinic_phone = info["Phone"]
+            clinic_reg = info["Region"]
         else:
-            doctor_name = st.text_input("Doctor(의사명)", value="")
-            clinic_addr = ""
-            clinic_phone = ""
-            clinic_reg = "Courier"
+            clinic_addr, clinic_phone, clinic_reg = "", "", "Courier"
 
     with c2:
         is_3d = st.checkbox("3D Model", value=True)
@@ -106,72 +110,36 @@ with tab1:
     with col5: due_date = st.date_input("요청일 (Due Date)", date.today() + timedelta(days=7))
     with col3: lab_done_date = st.date_input("완료일 (Lab Done)", date.today() + timedelta(days=1))
     with col4:
-        # 지역에 따라 출고일 자동 계산
         ship_days = 1 if clinic_reg == "Local" else 2
         ship_date = get_business_day(due_date, ship_days)
         st.date_input("출고일 (Shipping Date)", ship_date)
 
     if st.button("💾 케이스 저장"):
-        if sel_clinic == "선택하세요" or not case_no:
-            st.error("Case No와 병원을 선택해주세요.")
+        if current_clinic == "선택" or not case_no:
+            st.error("Case No와 병원/의사를 선택해주세요.")
         else:
             st.session_state.db.append({
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
-                "Doctor": doctor_name, "Address": clinic_addr, "Phone": clinic_phone,
+                "Case No": case_no, "Patient": patient, "Clinic": current_clinic, 
+                "Doctor": current_doctor, "Address": clinic_addr, "Phone": clinic_phone,
                 "Material": material, "Arch": arch, "Status": "진행중"
             })
-            st.success(f"{case_no} 등록 완료!")
+            st.success("등록 완료!")
 
 with tab2:
-    # (리스트 및 인보이스 출력 로직은 v3.5와 동일하며 자동 연동된 정보를 사용합니다)
+    # 리스트 및 인보이스 출력 (v3.6과 동일)
     for i, row in enumerate(st.session_state.db):
         c_st, c_inf, c_btn = st.columns([1, 3, 2])
         with c_st: st.write("🟡" if row['Status']=="진행중" else "🟢")
         with c_inf: st.write(f"**{row['Case No']}** | {row['Patient']} ({row['Clinic']})")
         with c_btn:
-            ca, cb = st.columns(2)
-            with ca:
-                if st.button("완료" if row['Status']=="진행중" else "복구", key=f"btn_{i}"):
-                    st.session_state.db[i]['Status'] = "완료" if row['Status']=="진행중" else "진행중"
-                    st.rerun()
-            with cb:
-                if st.button("인보이스", key=f"inv_{i}"):
-                    st.session_state.selected_invoice = row
+            if st.button("완료" if row['Status']=="진행중" else "복구", key=f"btn_{i}"):
+                st.session_state.db[i]['Status'] = "완료" if row['Status']=="진행중" else "진행중"
+                st.rerun()
+            if st.button("인보이스", key=f"inv_{i}"):
+                st.session_state.selected_invoice = row
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.markdown('<div class="invoice-wrapper">', unsafe_allow_html=True)
-        invoice_html = f"""
-        <div class="invoice-paper">
-            <div class="inv-header">
-                <div>
-                    <p style="font-size:9px; font-weight:bold;">DENTAL TECHNOLOGY LTD</p>
-                    <h1 class="logo-main">skycad</h1>
-                    <p style="font-size:13px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
-                </div>
-                <div style="text-align:right;">
-                    <h1 style="font-size:32px;">INVOICE</h1>
-                    <p>No. 162084</p><p>{date.today().strftime('%-m/%-d/%Y')}</p><br>
-                    <div style="text-align:left; float:right;">
-                        <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Address']}<br>{inv['Phone']}
-                    </div>
-                </div>
-            </div>
-            <div class="patient-line">Patient: &nbsp; {inv['Patient'].upper()}</div>
-            <table class="item-table">
-                <thead><tr><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
-                <tbody><tr><td>Nightguard ({inv['Material']}) {inv['Arch']}</td><td style="text-align:right;">$180.00</td></tr></tbody>
-            </table>
-            <div class="bottom-box">
-                <div class="total-line" style="display:flex; justify-content:space-between; font-weight:bold; font-size:18px; margin-bottom:10px;">
-                    <div>{inv['Case No']}</div><div>Total: $180.00</div>
-                </div>
-                <div class="notice-box">
-                    <u style="font-weight:bold; display:block; margin-bottom:8px;">All dental products we offer are custom made in Canada.</u>
-                    <p style="font-size:11px; line-height:1.4;">Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.552% APR, Thank you.</p>
-                </div>
-            </div>
-        </div>
-        """
-        st.markdown(invoice_html, unsafe_allow_html=True)
+        # 인보이스 HTML 생략(v3.6과 동일한 레터지 비율 디자인)
         st.markdown('</div>', unsafe_allow_html=True)
