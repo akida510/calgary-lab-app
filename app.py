@@ -35,13 +35,13 @@ st.markdown("""
         color: white !important; font-weight: bold; border-radius: 5px; 
     }
     
-    /* 인보이스 출력용 스타일 (깨짐 방지 보강) */
+    /* 인보이스 출력용 스타일 (중앙 깨짐 방지 및 고정 레이아웃) */
     .invoice-container {
         background-color: white !important; color: black !important; 
         padding: 40px; border-radius: 5px; font-family: 'Arial', sans-serif;
         width: 100%; box-sizing: border-box;
     }
-    .invoice-container * { color: black !important; }
+    .invoice-container * { color: black !important; line-height: 1.2; }
 
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
@@ -71,7 +71,8 @@ def get_business_day(start_date, days_to_subtract):
 # ---------------------------------------------------------
 # [메인 화면]
 # ---------------------------------------------------------
-st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Heechul Jung Edition</div></div>', unsafe_allow_html=True)
+# 제작자 정보 고정 (Designed by Heechul Jung V1.0)
+st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 13px; font-weight: 400;">Designed by Heechul Jung V1.0.2</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
@@ -121,7 +122,7 @@ with tab1:
                 "Addr": c_info['Addr'], "City": c_info['City']
             }
             st.session_state.db.append(new_case)
-            st.success(f"{case_no}번 케이스 등록 완료!")
+            st.success(f"✅ {case_no}번 케이스 등록 완료!")
 
 # --- Tab 2: 리스트 및 완료 처리 ---
 with tab2:
@@ -148,64 +149,64 @@ with tab2:
         inv = st.session_state.selected_invoice
         st.divider()
         
-        # 인보이스 레이아웃 (테이블 구조로 중앙 깨짐 방지)
+        # 인보이스 레이아웃 (사진 디자인 정밀 반영)
         st.markdown(f"""
         <div class="invoice-container">
-            <table style="width:100%; border:none; margin-bottom:20px;">
+            <table style="width:100%; border:none; table-layout:fixed;">
                 <tr>
-                    <td style="vertical-align:top;">
+                    <td style="vertical-align:top; width:60%;">
                         <span style="font-size:10px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
-                        <span style="font-size:48px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-2px; line-height:1;">skycad</span><br>
-                        <div style="margin-top:10px; font-size:12px;">
+                        <span style="font-size:55px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-3px; line-height:1;">skycad</span><br>
+                        <div style="margin-top:15px; font-size:12px;">
                             <b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600
                         </div>
                     </td>
-                    <td style="vertical-align:top; text-align:right;">
-                        <h1 style="font-size:35px; margin:0; font-weight:400; letter-spacing:3px;">INVOICE</h1>
-                        <p style="font-size:14px;">No. {inv['Case No'].replace('ET','')}<br>{inv['Lab Done'].strftime('%d/%m/%Y')}</p>
-                        <div style="text-align:left; border:1px solid #000; padding:10px; width:200px; float:right; margin-top:10px; font-size:13px;">
+                    <td style="vertical-align:top; text-align:right; width:40%;">
+                        <h1 style="font-size:45px; margin:0; font-weight:400; letter-spacing:5px;">INVOICE</h1>
+                        <p style="font-size:14px; margin-top:5px;">No. {inv['Case No'].replace('ET','')}<br>{inv['Lab Done'].strftime('%d/%m/%Y')}</p>
+                        <div style="text-align:left; border:1px solid #000; padding:15px; width:220px; float:right; margin-top:10px; font-size:13px; line-height:1.4;">
                             <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Addr']}<br>{inv['City']}
                         </div>
                     </td>
                 </tr>
             </table>
 
-            <div style="margin: 20px 0; font-size:16px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
+            <div style="margin: 40px 0 15px 0; font-size:18px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
 
-            <table style="width:100%; border-collapse:collapse; border-top:2px solid black; border-bottom:2px solid black;">
+            <table style="width:100%; border-collapse:collapse; border-top:2.5px solid black; border-bottom:2.5px solid black;">
                 <thead>
-                    <tr style="border-bottom:1px solid black;">
-                        <th style="padding:10px 5px; text-align:left;">Description</th>
-                        <th style="padding:10px 5px; text-align:right;">Amount</th>
+                    <tr style="border-bottom:1.5px solid black;">
+                        <th style="padding:12px 5px; text-align:left; font-size:16px;">Description</th>
+                        <th style="padding:12px 5px; text-align:right; font-size:16px; width:120px;">Amount</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="padding:20px 5px; vertical-align:top; height:350px;">
+                        <td style="padding:30px 5px; vertical-align:top; height:380px; font-size:16px;">
                             Nightguard ({inv['Material']}) - {inv['Arch']}
                         </td>
-                        <td style="padding:20px 5px; vertical-align:top; text-align:right;">$180.00</td>
+                        <td style="padding:30px 5px; vertical-align:top; text-align:right; font-size:16px;">$180.00</td>
                     </tr>
                 </tbody>
             </table>
 
-            <table style="width:100%; border-collapse:collapse; margin-bottom:40px;">
+            <table style="width:100%; border-collapse:collapse; margin-bottom:50px;">
                 <tr>
-                    <td style="padding:10px 5px; font-weight:bold; font-size:17px;">{inv['Case No']}</td>
-                    <td style="padding:10px 5px; font-weight:bold; font-size:17px; text-align:right;">Total: $180.00</td>
+                    <td style="padding:15px 5px; font-weight:bold; font-size:18px;">{inv['Case No']}</td>
+                    <td style="padding:15px 5px; font-weight:bold; font-size:18px; text-align:right;">Total: $180.00</td>
                 </tr>
             </table>
 
-            <div style="text-align:center; margin-top:20px;">
-                <div style="font-size:16px; font-weight:bold; text-decoration:underline; margin-bottom:10px;">
+            <div style="text-align:center; margin-top:30px;">
+                <div style="font-size:18px; font-weight:bold; text-decoration:underline; margin-bottom:20px;">
                     All dental products we offer are custom made in Canada.
                 </div>
-                <p style="font-size:11px; line-height:1.5;">
+                <p style="font-size:12px; line-height:1.7; padding:0 40px;">
                     Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.
                 </p>
             </div>
             
-            <div style="margin-top:50px; border-top:1px solid black; width:200px; padding-top:5px; font-size:12px;">
+            <div style="margin-top:70px; border-top:1px solid black; width:220px; padding-top:10px; font-size:13px;">
                 Authorized Signature
             </div>
         </div>
