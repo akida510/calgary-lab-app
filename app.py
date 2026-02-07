@@ -39,81 +39,103 @@ all_doctors = sorted(ref_data["Dr"].unique().tolist())
 # [3. 대시보드]
 st.markdown(f"""
     <div class="main-header"><h1 class="main-title">🦷 skycad lab night gaurd manager</h1></div>
-    <div style="margin-bottom:20px; color:#4ade80; font-weight:bold;">
+    <div style="margin-bottom:20px; color:#4ade80; font-weight:bold; font-size:1.1rem;">
         {current_month} 실적: {len(st.session_state.db)}건 | 예상 수익: ${len(st.session_state.db)*POST_TAX_UNIT:,.2f}
     </div>
     """, unsafe_allow_html=True)
 
 # [4. 메인 기능]
-tab1, tab2 = st.tabs(["📝 케이스 등록", "📊 리스트"])
+tab1, tab2 = st.tabs(["📝 케이스 등록 및 일정", "📊 리스트 및 인보이스"])
 
 with tab1:
-    st.session_state.active_invoice = None
+    st.session_state.active_invoice = None  # 등록창에서는 인보이스 안 뜨게 초기화
     
-    # 폼 밖에서 미리 입력을 받아야 실시간으로 작동함
+    # 레이아웃 구성
     c1, c2 = st.columns(2)
+    
     with c1:
+        st.subheader("📌 기본 정보")
         case_no = st.text_input("Case No (팬번호)")
         patient = st.text_input("Patient (환자명)")
         
-        # 병원명 처리
+        # 병원명 선택/입력
         sel_cln = st.selectbox("Clinic (병원명) 선택", ["선택하세요", "직접 입력"] + all_clinics)
-        final_cln = ""
-        if sel_cln == "직접 입력":
-            final_cln = st.text_input("병원명 직접 입력")
-        else:
-            final_cln = sel_cln
+        final_cln = st.text_input("병원명 직접 입력") if sel_cln == "직접 입력" else (sel_cln if sel_cln != "선택하세요" else "")
 
-        # 의사명 처리
+        # 의사명 선택/입력
         auto_dr = ""
         if final_cln in ref_data["Clinic"].values:
             auto_dr = ref_data[ref_data["Clinic"] == final_cln]["Dr"].iloc[0]
         
         sel_dr = st.selectbox("Dr (의사명) 선택", ["선택하세요", "직접 입력"] + all_doctors, 
                               index=all_doctors.index(auto_dr)+2 if auto_dr in all_doctors else 0)
-        final_dr = ""
-        if sel_dr == "직접 입력":
-            final_dr = st.text_input("의사명 직접 입력")
-        else:
-            final_dr = sel_dr
+        final_dr = st.text_input("의사명 직접 입력") if sel_dr == "직접 입력" else (sel_dr if sel_dr != "선택하세요" else "")
 
-    with c2:
-        # 일정 등록 (접수 형태)
-        model_type = st.radio("접수 형태", ["3D 디지털 스캔", "일반 모델(석고)"], horizontal=True)
-        model_date = "-"
-        if model_type == "일반 모델(석고)":
-            model_date = st.date_input("모델 접수 날짜", value=date.today()).strftime('%Y-%m-%d')
-        
+        st.markdown("---")
+        st.subheader("⚒️ 제작 사양")
         mat = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arc = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
-        inv_date = st.date_input("Invoice Date", value=date.today())
 
-    if st.button("💾 정보 저장 및 초기화", use_container_width=True):
-        if case_no and final_cln and final_cln != "선택하세요":
+    with c2:
+        st.subheader("📅 일정 관리 (필수)")
+        # 접수 형태
+        model_type = st.radio("접수 형태", ["3D 디지털 스캔", "일반 모델(석고)"], horizontal=True)
+        
+        # 날짜들 (처음 기획하신 대로 모두 복구)
+        col_date1, col_date2 = st.columns(2)
+        with col_date1:
+            receive_date = st.date_input("접수일(Received)", value=date.today())
+            request_date = st.date_input("요청일(Requested)", value=date.today() + timedelta(days=7))
+        with col_date2:
+            complete_date = st.date_input("완료일(Completed)", value=date.today() + timedelta(days=6))
+            ship_date = st.date_input("출고일(Shipped)", value=date.today() + timedelta(days=7))
+            
+        inv_date = st.date_input("Invoice Date (인보이스 발행일)", value=date.today())
+
+    # 저장 버튼
+    if st.button("💾 모든 정보 저장 및 창 초기화", use_container_width=True):
+        if case_no and final_cln:
             c_info = ref_data[ref_data["Clinic"] == final_cln].iloc[0] if final_cln in ref_data["Clinic"].values else {"Address": "", "City": "", "Phone": ""}
             st.session_state.db.append({
-                "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient,
-                "Clinic": final_cln, "Dr": final_dr, 
-                "Address": c_info.get("Address", ""), "City": c_info.get("City", ""), "Phone": c_info.get("Phone", ""),
-                "Material": mat, "Arch": arc, "Date": inv_date.strftime('%m/%d/%Y'),
-                "ModelInfo": f"{model_type} ({model_date})"
+                "Inv_No": st.session_state.inv_counter,
+                "Case No": case_no,
+                "Patient": patient,
+                "Clinic": final_cln,
+                "Dr": final_dr,
+                "Address": c_info.get("Address", ""),
+                "City": c_info.get("City", ""),
+                "Phone": c_info.get("Phone", ""),
+                "Material": mat,
+                "Arch": arc,
+                "Date": inv_date.strftime('%m/%d/%Y'),
+                "Schedule": {
+                    "Type": model_type,
+                    "Received": receive_date.strftime('%Y-%m-%d'),
+                    "Requested": request_date.strftime('%Y-%m-%d'),
+                    "Completed": complete_date.strftime('%Y-%m-%d'),
+                    "Shipped": ship_date.strftime('%Y-%m-%d')
+                }
             })
             st.session_state.inv_counter += 1
-            st.success("저장 완료!")
+            st.success(f"케이스 {case_no}번 저장 완료!")
             st.rerun()
+        else:
+            st.error("Case No와 병원명은 필수입니다.")
 
 with tab2:
-    st.markdown("### 📊 저장된 케이스 리스트")
+    st.markdown("### 📊 케이스 관리 리스트")
     for i, row in enumerate(st.session_state.db):
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            # .get()을 사용하여 예전 데이터에서 ModelInfo가 없어도 에러 안 나게 수정
-            m_info = row.get('ModelInfo', '정보 없음')
-            st.write(f"**No. {row['Inv_No']}** | {row['Patient']} ({row['Clinic']}) - {m_info}")
-        with col2:
-            if st.button("🔍 Invoice", key=f"inv_show_{i}"):
+        col_info, col_btn = st.columns([5, 1])
+        with col_info:
+            sched = row.get('Schedule', {})
+            # 리스트에 일정 요약 표시
+            st.write(f"**No. {row['Inv_No']}** | {row['Patient']} ({row['Clinic']})")
+            st.caption(f"📅 접수: {sched.get('Received','-')} | 완료: {sched.get('Completed','-')} | 출고: {sched.get('Shipped','-')} ({sched.get('Type','-')})")
+        with col_btn:
+            if st.button("🔍 Invoice", key=f"btn_inv_{i}"):
                 st.session_state.active_invoice = row
-    
+
+    # 리스트 하단에 인보이스 출력
     if st.session_state.active_invoice:
         st.markdown("---")
         inv = st.session_state.active_invoice
