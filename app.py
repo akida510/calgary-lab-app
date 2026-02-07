@@ -75,18 +75,17 @@ with tab1:
         sel_doctor = st.selectbox("Doctor (의사명)", ["선택"] + doctors)
         
     with c2:
-        # 3D 모델 수신을 기본값(value=True)으로 설정
-        is_3d = st.checkbox("3D 모델 수신 (3D 모델인 경우 체크)", value=True)
+        # '3D 모델 수신' -> '3D Model'로 변경 및 기본값 True
+        is_3d = st.checkbox("3D Model", value=True)
         
         if is_3d:
             st.text_input("접수일", "-", disabled=True)
             model_date_val = "-"
         else:
-            # 체크 해제 시 석고 모델로 간주, 오늘 날짜 입력
             model_date_val = st.date_input("접수일", date.today())
         
-        material = st.radio("Material (재질)", ["Thermo", "Dual", "Soft"], horizontal=True)
-        arch = st.radio("Arch (위치)", ["Max", "Mand", "Both"], horizontal=True)
+        material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
+        arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
         
     st.markdown("---")
     st.markdown("### 📅 일정 관리")
@@ -106,7 +105,7 @@ with tab1:
         if not case_no or sel_clinic == "선택":
             st.error("Case #와 Clinic은 필수 입력 사항입니다.")
         else:
-            st.success(f"{case_no} 데이터 저장 완료 및 인보이스를 생성합니다.")
+            st.success(f"{case_no} 데이터 저장 완료!")
             
             # 인보이스 미리보기
             invoice_html = f"""
