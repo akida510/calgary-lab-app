@@ -18,14 +18,25 @@ st.markdown("""
     }
     input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
 
-    /* [수정 포인트] 인보이스 종이 및 모든 내부 글자색 강제 검정 고정 */
+    /* [추가] 버튼 가독성 수정 (모바일 대응) */
+    .stButton > button {
+        background-color: #1a1c24 !important;
+        color: #ffffff !important;
+        border: 1px solid #4a4a4a !important;
+        width: 100%; /* 모바일에서 누르기 편하게 넓게 설정 */
+    }
+    .stButton > button:hover {
+        border-color: #1a4e8a !important;
+        color: #1a4e8a !important;
+    }
+
+    /* 인보이스 종이 디자인 (원본 유지) */
     .invoice-paper {
         background-color: white !important; 
         padding: 50px; border: 1px solid #000; font-family: 'Arial', sans-serif;
         width: 100%; max-width: 800px; margin: 20px auto; line-height: 1.2;
     }
     
-    /* 인보이스 내의 모든 요소는 무조건 검정색으로! */
     .invoice-paper, .invoice-paper div, .invoice-paper p, .invoice-paper span, 
     .invoice-paper b, .invoice-paper u, .invoice-paper h1, .invoice-paper h2, 
     .invoice-paper table, .invoice-paper td, .invoice-paper th {
@@ -50,7 +61,6 @@ st.markdown("""
     .bottom-section { margin-top: 50px; }
     .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-bottom: 30px; }
     
-    /* 안내 문구 박스 가독성 강화 */
     .notice-box { border: 1.5px solid black; padding: 20px; text-align: center; background-color: #ffffff !important; }
     .notice-box u { font-weight: bold; font-size: 16px; display: block; margin-bottom: 10px; text-decoration: underline !important; }
     .notice-box p { font-size: 12px; line-height: 1.4; font-weight: 500; }
@@ -62,9 +72,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# [로직 영역]
-# ---------------------------------------------------------
+# 이하 로직 및 탭 구성은 원본 코드와 100% 동일합니다.
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -80,9 +88,6 @@ def get_business_day(start_date, days_to_subtract):
         if curr.weekday() < 5: days_to_subtract -= 1
     return curr
 
-# ---------------------------------------------------------
-# [UI 화면]
-# ---------------------------------------------------------
 tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트/완료", "🔍 검색"])
 
 with tab1:
