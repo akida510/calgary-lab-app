@@ -2,51 +2,31 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [1. 디자인 설정 - 제목 확대 및 섹션 가독성 강화]
+# [1. 디자인 설정 - 제목, 제작자 정보, 섹션 가독성 강화]
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     
-    /* 입력창 및 섹션 디자인 */
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #30363d !important;
     }
     input:disabled { background-color: #21262d !important; color: #8b949e !important; }
 
-    /* 메인 제목 및 제작자 정보 */
     .header-box {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-end;
-        padding-bottom: 15px;
-        border-bottom: 2px solid #30363d;
-        margin-bottom: 25px;
+        display: flex; justify-content: space-between; align-items: flex-end;
+        padding-bottom: 15px; border-bottom: 2px solid #30363d; margin-bottom: 25px;
     }
-    .main-title {
-        font-size: 36px !important;
-        font-weight: 800 !important;
-        color: #ffffff !important;
-    }
-    .creator-info {
-        font-size: 14px !important;
-        color: #8b949e !important;
-        font-style: italic;
-    }
+    .main-title { font-size: 36px !important; font-weight: 800 !important; color: #ffffff !important; }
+    .creator-info { font-size: 14px !important; color: #8b949e !important; font-style: italic; }
 
-    /* 섹션 타이틀 강조 */
     .section-header {
-        font-size: 22px !important;
-        font-weight: 700 !important;
-        color: #4c6ef5 !important;
-        margin-top: 30px !important;
-        margin-bottom: 15px !important;
-        display: block;
+        font-size: 22px !important; font-weight: 700 !important; color: #4c6ef5 !important;
+        margin-top: 30px !important; margin-bottom: 15px !important; display: block;
     }
 
-    /* 버튼 스타일 (콤팩트 다크톤) */
     .stButton>button { 
         width: auto !important; min-width: 100px !important; height: 2.4em !important; 
         background-color: #21262d !important; color: #c9d1d9 !important; 
@@ -57,7 +37,6 @@ st.markdown("""
 
     .stat-card { background-color: #161b22; padding: 20px; border-radius: 8px; border: 1px solid #30363d; margin-top: 30px; }
     
-    /* 인보이스 출력 디자인 */
     .inv-outer-container { display: flex; justify-content: center; padding: 20px 0; background-color: #0d1117; }
     .invoice-letter { background-color: white !important; color: black !important; width: 8.5in; min-height: 11in; padding: 0.6in; border: 1px solid #d0d7de; box-sizing: border-box; font-family: 'Arial', sans-serif; }
     .invoice-letter * { color: black !important; line-height: 1.2; }
@@ -75,32 +54,38 @@ if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 if 'inv_counter' not in st.session_state: st.session_state.inv_counter = 162084
 
+# 마스터 데이터 (병원-의사 매핑)
 ref_data = pd.DataFrame([
-    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local", "Address": "205-7136 11 St NE", "City": "Calgary, AB T2E 4Y9", "Phone": "(403) 970-0600"},
-    {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier", "Address": "13510 127 St NW", "City": "Edmonton, AB T5L 1B9", "Phone": "(780) 455-6806"},
+    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local", "Address": "205-7136 11 St NE", "City": "Calgary, AB T2E 4Y9"},
+    {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier", "Address": "13510 127 St NW", "City": "Edmonton, AB T5L 1B9"},
 ])
 
-if 'sel_clinic' not in st.session_state: st.session_state.sel_clinic = "선택"
-if 'sel_doctor' not in st.session_state: st.session_state.sel_doctor = "선택"
+# 양방향 연동을 위한 세션 변수
+if 'cur_cln' not in st.session_state: st.session_state.cur_cln = "선택"
+if 'cur_doc' not in st.session_state: st.session_state.cur_doc = "선택"
 
-def update_from_clinic():
-    if st.session_state.clinic_key != "선택":
-        st.session_state.sel_doctor = ref_data[ref_data['Clinic'] == st.session_state.clinic_key]['Doctor'].iloc[0]
-        st.session_state.sel_clinic = st.session_state.clinic_key
-    else: st.session_state.sel_clinic = "선택"; st.session_state.sel_doctor = "선택"
+def on_cln_change():
+    val = st.session_state.cln_select
+    if val != "선택":
+        st.session_state.cur_cln = val
+        st.session_state.cur_doc = ref_data[ref_data['Clinic'] == val]['Doctor'].iloc[0]
+    else:
+        st.session_state.cur_cln = "선택"; st.session_state.cur_doc = "선택"
 
-def update_from_doctor():
-    if st.session_state.doctor_key != "선택":
-        st.session_state.sel_clinic = ref_data[ref_data['Doctor'] == st.session_state.doctor_key]['Clinic'].iloc[0]
-        st.session_state.sel_doctor = st.session_state.doctor_key
-    else: st.session_state.sel_clinic = "선택"; st.session_state.sel_doctor = "선택"
+def on_doc_change():
+    val = st.session_state.doc_select
+    if val != "선택":
+        st.session_state.cur_doc = val
+        st.session_state.cur_cln = ref_data[ref_data['Doctor'] == val]['Clinic'].iloc[0]
+    else:
+        st.session_state.cur_cln = "선택"; st.session_state.cur_doc = "선택"
 
 def get_business_day(start_date, days_to_subtract):
-    current_date = start_date
+    curr = start_date
     while days_to_subtract > 0:
-        current_date -= timedelta(days=1)
-        if current_date.weekday() < 5: days_to_subtract -= 1
-    return current_date
+        curr -= timedelta(days=1)
+        if curr.weekday() < 5: days_to_subtract -= 1
+    return curr
 
 # [3. 메인 화면]
 st.markdown('<div class="header-box"><div class="main-title">🦷 Skycad Lab Manager</div><div class="creator-info">Created by Heechul Jung</div></div>', unsafe_allow_html=True)
@@ -114,10 +99,14 @@ with tab1:
     with c1:
         case_no = st.text_input("Case No (팬번호)")
         patient = st.text_input("Patient (환자명)")
-        cln_list = ["선택"] + sorted(ref_data['Clinic'].tolist())
-        st.selectbox("Clinic (병원명)", cln_list, key="clinic_key", index=cln_list.index(st.session_state.sel_clinic), on_change=update_from_clinic)
-        doc_list = ["선택"] + sorted(ref_data['Doctor'].tolist())
-        st.selectbox("Doctor (의사명)", doc_list, key="doctor_key", index=doc_list.index(st.session_state.sel_doctor), on_change=update_from_doctor)
+        
+        clns = ["선택"] + sorted(ref_data['Clinic'].tolist())
+        st.selectbox("Clinic (병원명)", clns, key="cln_select", 
+                     index=clns.index(st.session_state.cur_cln), on_change=on_cln_change)
+        
+        docs = ["선택"] + sorted(ref_data['Doctor'].tolist())
+        st.selectbox("Doctor (의사명)", docs, key="doc_select", 
+                     index=docs.index(st.session_state.cur_doc), on_change=on_doc_change)
                      
     with c2:
         is_3d = st.checkbox("3D Model", value=True)
@@ -131,19 +120,18 @@ with tab1:
     with col5: due_date = st.date_input("Due Date (요청일)", today + timedelta(days=7))
     with col3: lab_done_date = st.date_input("Lab Done (완료일)", today + timedelta(days=1))
     with col4:
-        reg = ref_data[ref_data['Clinic']==st.session_state.sel_clinic]['Region'].iloc[0] if st.session_state.sel_clinic != "선택" else "Local"
+        reg = ref_data[ref_data['Clinic']==st.session_state.cur_cln]['Region'].iloc[0] if st.session_state.cur_cln != "선택" else "Local"
         ship_date = get_business_day(due_date, 1 if reg=="Local" else 2)
         st.date_input("Shipping Date (출고일)", ship_date)
 
-    st.write("") 
     if st.button("💾 케이스 저장하기"):
-        if st.session_state.sel_clinic == "선택" or not case_no:
+        if st.session_state.cur_cln == "선택" or not case_no:
             st.error("Case No와 Clinic을 확인하세요.")
         else:
-            c_info = ref_data[ref_data['Clinic'] == st.session_state.sel_clinic].iloc[0]
+            c_info = ref_data[ref_data['Clinic'] == st.session_state.cur_cln].iloc[0]
             st.session_state.db.append({
                 "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient, 
-                "Clinic": st.session_state.sel_clinic, "Doctor": st.session_state.sel_doctor, 
+                "Clinic": st.session_state.cur_cln, "Doctor": st.session_state.cur_doc, 
                 "Material": material, "Arch": arch, "Status": "Pending",
                 "Address": c_info.get("Address", ""), "City": c_info.get("City", ""),
                 "Inv_Date": today.strftime('%m/%d/%Y'), "Due": due_date, "Month": today.strftime('%Y-%m')
@@ -163,11 +151,11 @@ with tab2:
     for i, row in enumerate(st.session_state.db):
         c_info, c_btn = st.columns([6, 1])
         with c_info:
-            status_icon = "🟢" if row.get('Status')=="Completed" else "🟡"
-            st.markdown(f"**{status_icon} {row.get('Case No')}** | {row.get('Patient')} | {row.get('Clinic')} | Due: {row.get('Due')}")
+            icon = "🟢" if row.get('Status')=="Completed" else "🟡"
+            st.markdown(f"**{icon} {row.get('Case No')}** | {row.get('Patient')} | {row.get('Clinic')} | Due: {row.get('Due')}")
         with c_btn:
-            label = "완료" if row.get('Status') == "Pending" else "재출력"
-            if st.button(label, key=f"btn_{i}"):
+            lbl = "완료" if row.get('Status') == "Pending" else "재출력"
+            if st.button(lbl, key=f"btn_{i}"):
                 st.session_state.db[i]['Status'] = "Completed"
                 st.session_state.selected_invoice = st.session_state.db[i]
                 st.rerun()
@@ -202,7 +190,6 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
 
-    # [수량 현황판]
     st.markdown(f"""
     <div class="stat-card">
         <div style="display: flex; gap: 50px;">
@@ -213,4 +200,4 @@ with tab2:
     </div>
     """, unsafe_allow_html=True)
 
-with tab3: st.write("🔍 검색 기능")
+with tab3: st.write("🔍 검색 기능 구현 예정")
