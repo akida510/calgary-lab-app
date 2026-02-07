@@ -45,18 +45,26 @@ if 'ref_data' not in st.session_state:
     st.session_state.ref_data = pd.DataFrame([
         {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local"},
         {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier"},
-        {"Clinic": "Calgary Central", "Doctor": "Dr. Smith", "Region": "Local"}, # 테스트용 추가
+        {"Clinic": "Vancouver Dental", "Doctor": "Dr. Lee", "Region": "Courier"},
     ])
 
 if 'temp_db' not in st.session_state:
     st.session_state.temp_db = []
 
+def get_business_day(start_date, days_to_subtract):
+    current_date = start_date
+    while days_to_subtract > 0:
+        current_date -= timedelta(days=1)
+        if current_date.weekday() < 5:
+            days_to_subtract -= 1
+    return current_date
+
 def get_shipping_date(due_date, clinic_name):
     ref = st.session_state.ref_data
     region = ref[ref['Clinic'] == clinic_name]['Region'].values
     if len(region) > 0 and region[0] == "Local":
-        return due_date - timedelta(days=1)
-    return due_date - timedelta(days=2)
+        return get_business_day(due_date, 1)
+    return get_business_day(due_date, 2)
 
 # ---------------------------------------------------------
 # [메인 화면]
@@ -64,24 +72,21 @@ def get_shipping_date(due_date, clinic_name):
 tab1, tab2, tab3 = st.tabs(["📝 등록 및 완료", "📊 정산 대시보드", "🔍 검색"])
 
 with tab1:
-    st.markdown("### 📋 정보 입력")
+    st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
     
     with c1:
-        case_no = st.text_input("Case #", placeholder="예: ET33")
-        patient = st.text_input("Patient", placeholder="환자 성함")
+        # 요청하신 대로 라벨 명칭 변경
+        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
+        patient = st.text_input("Patient(환자명)", placeholder="환자 성함을 입력하세요")
         
-        # 병원 선택
         clinics = sorted(list(set(st.session_state.ref_data['Clinic'].tolist())))
-        sel_clinic = st.selectbox("Clinic", ["선택"] + clinics)
+        sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
         
-        # 병원에 따른 의사 필터링 로직
+        filtered_docs = []
         if sel_clinic != "선택":
             filtered_docs = st.session_state.ref_data[st.session_state.ref_data['Clinic'] == sel_clinic]['Doctor'].tolist()
-        else:
-            filtered_docs = []
-        
-        sel_doctor = st.selectbox("Doctor", ["선택"] + filtered_docs)
+        sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + filtered_docs)
         
     with c2:
         is_3d = st.checkbox("3D Model", value=True)
@@ -92,28 +97,27 @@ with tab1:
     st.markdown("### 📅 일정 관리")
     col3, col4, col5 = st.columns(3)
     with col5: 
-        due_date = st.date_input("요청일 (Due)", date.today() + timedelta(days=7))
+        due_date = st.date_input("요청일 (Due Date)", date.today() + timedelta(days=7))
     with col3: 
-        lab_done = st.date_input("완료일 (Done)", date.today() + timedelta(days=1))
+        lab_done = st.date_input("완료일 (Lab Done)", date.today() + timedelta(days=1))
     with col4:
         ship_date = get_shipping_date(due_date, sel_clinic)
-        st.date_input("출고일 (Ship)", ship_date)
+        st.date_input("출고일 (Shipping Date)", ship_date)
 
     if st.button("🚀 작업 완료 및 저장"):
         if sel_clinic == "선택" or not case_no:
-            st.error("Case #와 Clinic은 필수입니다!")
+            st.error("Case No와 Clinic은 필수 입력 사항입니다.")
         else:
             st.session_state.temp_db.append({
-                "Case #": case_no, "Patient": patient, "Clinic": sel_clinic, "Doctor": sel_doctor,
+                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, "Doctor": sel_doctor,
                 "Material": material, "Done": lab_done, "Status": "Completed"
             })
-            st.success(f"{case_no} 저장 완료!")
+            st.success(f"{case_no} 케이스 저장 완료!")
 
 with tab2:
-    st.subheader("📊 정산 및 인센티브")
-    
-    # 정산 로직
-    total_completed = len(st.session_state.temp_db) + 318 # 시뮬레이션
+    st.subheader("📊 정산 현황")
+    # 정산 로직 (v1.9와 동일)
+    total_completed = len(st.session_state.temp_db) + 318
     goal = 320
     extra_count = max(0, total_completed - goal)
     gross_pay = extra_count * 30.0
@@ -123,10 +127,9 @@ with tab2:
     with col_m1: st.markdown(f"<div class='metric-card'><b>완료 실적</b><br><span style='font-size:22px;'>{total_completed} / {goal}</span></div>", unsafe_allow_html=True)
     with col_m2: st.markdown(f"<div class='metric-card'><b>초과 수량</b><br><span style='font-size:22px; color:#00ff00;'>+ {extra_count}</span></div>", unsafe_allow_html=True)
     with col_m3: st.markdown(f"<div class='metric-card'><b>세전 수당</b><br><span style='font-size:22px;'>$ {gross_pay:,.2f}</span></div>", unsafe_allow_html=True)
-    with col_m4: st.markdown(f"<div class='metric-card'><b>실수령액</b><br><span style='font-size:22px; color:#00ff00;'>$ {net_pay:,.2f}</span></div>", unsafe_allow_html=True)
+    with col_m4: st.markdown(f"<div class='metric-card'><b>실수령액(세후)</b><br><span style='font-size:22px; color:#00ff00;'>$ {net_pay:,.2f}</span></div>", unsafe_allow_html=True)
     
     st.progress(min(1.0, total_completed / goal))
-    
     if st.session_state.temp_db:
         st.table(pd.DataFrame(st.session_state.temp_db))
 
