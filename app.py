@@ -32,23 +32,25 @@ st.markdown("""
     .money-text { color: #4ade80; font-weight: 600; font-size: 0.9rem; }
     .money-label-sub { font-size: 0.65rem; color: #94a3b8; }
 
-    /* 인보이스 팝업 및 종이 설정 (내용 복구) */
+    /* 인보이스 팝업 및 세련된 폰트 조절 */
     .invoice-overlay { 
         background-color: rgba(0,0,0,0.9); padding: 30px; 
         border-radius: 15px; border: 1px solid #444; margin-top: 20px;
     }
     .invoice-paper {
-        background-color: #ffffff !important; width: 100%; max-width: 800px; 
-        min-height: 1000px; padding: 50px; border: 1px solid #000; margin: 0 auto;
+        background-color: #ffffff !important; width: 100%; max-width: 780px; 
+        min-height: 950px; padding: 50px; border: 1px solid #000; margin: 0 auto;
         display: flex; flex-direction: column; color: #000 !important;
     }
     .invoice-paper * { 
         color: #000000 !important; -webkit-text-fill-color: #000000 !important; 
-        font-family: 'Arial', sans-serif !important; 
+        font-family: 'Helvetica', 'Arial', sans-serif !important; 
     }
+    
+    /* 하단 공지 박스 글자 크기 축소 */
     .notice-box { 
-        border: 1.5px solid black; padding: 15px; text-align: center; 
-        margin-top: 30px; font-size: 11px; line-height: 1.4;
+        border: 1px solid black; padding: 12px; text-align: center; 
+        margin-top: 25px; font-size: 10px; line-height: 1.4; color: #333 !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -165,38 +167,37 @@ with tab2:
         st.markdown(f"""
         <div class="invoice-overlay">
             <div class="invoice-paper">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 50px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px;">
                     <div>
-                        <p style="font-size:10px; font-weight:bold; margin-bottom:5px;">DENTAL TECHNOLOGY LTD</p>
-                        <h1 style="font-size: 58px; font-weight: 900; font-style: italic; color: #1a4e8a; margin:0; line-height:1;">skycad</h1>
-                        <p style="font-size:14px; line-height:1.4; margin-top:10px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
+                        <p style="font-size:9px; font-weight:bold; margin-bottom:4px;">DENTAL TECHNOLOGY LTD</p>
+                        <h1 style="font-size: 48px; font-weight: 900; font-style: italic; color: #1a4e8a; margin:0; line-height:1;">skycad</h1>
+                        <p style="font-size:12px; line-height:1.4; margin-top:8px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
                     </div>
                     <div style="text-align: right;">
-                        <h1 style="font-size:45px; font-weight:500; margin:0 0 15px 0;">INVOICE</h1>
-                        <p style="margin:0; font-size:16px;">No. {inv['Inv_No']}</p>
-                        <p style="margin:0 0 25px 0; font-size:16px;">{date.today().strftime('%-m/%-d/%Y')}</p>
-                        <div style="text-align:left; display:inline-block; font-size:13px; line-height:1.4; border-top:1px solid #000; padding-top:10px;">
+                        <h1 style="font-size:38px; font-weight:400; margin:0 0 12px 0; letter-spacing:1px;">INVOICE</h1>
+                        <p style="margin:0; font-size:13px;">No. {inv['Inv_No']}</p>
+                        <p style="margin:0 0 20px 0; font-size:13px;">{date.today().strftime('%-m/%-d/%Y')}</p>
+                        <div style="text-align:left; display:inline-block; font-size:12px; line-height:1.4; border-top:1px solid #000; padding-top:8px;">
                             <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Address']}<br>{inv['Phone']}
                         </div>
                     </div>
                 </div>
-                <div style="margin: 25px 0; padding: 15px 0; border-top: 2.5px solid black; border-bottom: 2.5px solid black; font-size: 20px; font-weight: bold;">
+                <div style="margin: 20px 0; padding: 10px 0; border-top: 1.5px solid black; border-bottom: 1.5px solid black; font-size: 16px; font-weight: bold; letter-spacing:0.5px;">
                     Patient: &nbsp; {inv['Patient'].upper()}
                 </div>
                 <table style="width: 100%; border-collapse: collapse; flex-grow: 1;">
-                    <thead><tr><th style="text-align:left; border-bottom: 1.5px solid black; padding: 10px 0;">Description</th><th style="text-align:right; border-bottom: 1.5px solid black; padding: 10px 0;">Amount</th></tr></thead>
-                    <tbody><tr><td style="padding:30px 0; font-size: 17px;">Nightguard ({inv['Material']}) {inv['Arch']}</td><td style="text-align:right; font-size: 17px;">$180.00</td></tr></tbody>
+                    <thead><tr><th style="text-align:left; border-bottom: 1px solid black; padding: 8px 0; font-size:13px;">Description</th><th style="text-align:right; border-bottom: 1px solid black; padding: 8px 0; font-size:13px;">Amount</th></tr></thead>
+                    <tbody><tr><td style="padding:20px 0; font-size: 15px;">Nightguard ({inv['Material']}) {inv['Arch']}</td><td style="text-align:right; font-size: 15px;">$180.00</td></tr></tbody>
                 </table>
                 <div style="margin-top: auto;">
-                    <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:22px; border-top:1.5px solid black; padding-top:15px; margin-bottom:20px;">
-                        <div>{inv['Case No']}</div><div>Total: $180.00</div>
+                    <div style="display:flex; justify-content:space-between; font-weight:500; font-size:16px; border-top:1px solid #ddd; padding-top:10px; margin-bottom:15px;">
+                        <div style="color:#555 !important;">{inv['Case No']}</div><div>Total: $180.00</div>
                     </div>
                     <div class="notice-box">
-                        <u style="font-weight:bold; display:block; margin-bottom:8px; font-size:13px;">All dental products we offer are custom made in Canada.</u>
+                        <u style="font-weight:bold; display:block; margin-bottom:5px; font-size:11px;">All dental products we offer are custom made in Canada.</u>
                         Please ensure your monthly payment is made within 30 days of receiving your statement. 
                         Any balances remaining after 30 days will be automatically charged to the credit card on file. 
-                        Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. 
-                        This has an equivalent rate of 19.552% APR, Thank you.
+                        Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month (19.552% APR). Thank you.
                     </div>
                 </div>
             </div>
