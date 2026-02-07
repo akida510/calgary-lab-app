@@ -24,6 +24,10 @@ st.markdown("""
         width: 100%; height: 3.5em; background-color: #4c6ef5 !important;
         color: white !important; font-weight: bold; border-radius: 5px; border: none;
     }
+    .metric-card {
+        background-color: #1a1c24; padding: 20px; border-radius: 10px;
+        border-left: 5px solid #4c6ef5; margin-bottom: 10px;
+    }
     .invoice-box {
         background-color: white; color: black; padding: 40px;
         border: 1px solid #ddd; border-radius: 5px; font-family: 'Courier New', Courier, monospace;
@@ -40,13 +44,16 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# [로직 영역] 데이터 설정
+# [데이터/로직 영역]
 # ---------------------------------------------------------
 if 'ref_data' not in st.session_state:
     st.session_state.ref_data = pd.DataFrame([
         {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local"},
         {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier"},
     ])
+
+if 'temp_db' not in st.session_state:
+    st.session_state.temp_db = []
 
 def get_shipping_date(due_date, clinic_name):
     ref = st.session_state.ref_data
@@ -58,72 +65,63 @@ def get_shipping_date(due_date, clinic_name):
 # ---------------------------------------------------------
 # [메인 화면]
 # ---------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["📝 등록 및 완료", "📊 정산", "🔍 검색"])
+tab1, tab2, tab3 = st.tabs(["📝 등록 및 완료", "📊 정산 대시보", "🔍 검색"])
 
 with tab1:
-    uploaded_file = st.file_uploader("📷 프리스크립션 사진 촬영/업로드", type=["jpg", "jpeg", "png"])
-    
-    st.markdown("### 📋 정보 입력 및 저장")
+    st.markdown("### 📋 정보 입력")
     c1, c2 = st.columns(2)
-    
     with c1:
-        case_no = st.text_input("Case # (워크팬 번호)", placeholder="예: ET33")
-        patient = st.text_input("Patient (환자명)", placeholder="환자 성함을 입력하세요")
-        clinics = st.session_state.ref_data['Clinic'].tolist()
-        doctors = st.session_state.ref_data['Doctor'].tolist()
-        sel_clinic = st.selectbox("Clinic (병원명)", ["선택"] + clinics)
-        sel_doctor = st.selectbox("Doctor (의사명)", ["선택"] + doctors)
-        
+        case_no = st.text_input("Case #", placeholder="예: ET33")
+        patient = st.text_input("Patient", placeholder="환자 성함")
+        sel_clinic = st.selectbox("Clinic", ["선택"] + st.session_state.ref_data['Clinic'].tolist())
     with c2:
-        # '3D 모델 수신' -> '3D Model'로 변경 및 기본값 True
         is_3d = st.checkbox("3D Model", value=True)
-        
-        if is_3d:
-            st.text_input("접수일", "-", disabled=True)
-            model_date_val = "-"
-        else:
-            model_date_val = st.date_input("접수일", date.today())
-        
+        model_date_val = "-" if is_3d else st.date_input("접수일", date.today())
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
-        
-    st.markdown("---")
+
     st.markdown("### 📅 일정 관리")
     col3, col4, col5 = st.columns(3)
-    
-    with col5:
-        due_date = st.date_input("요청일 (Due Date)", date.today() + timedelta(days=7))
-    with col3:
-        lab_done = st.date_input("완료일 (Lab Done)", date.today() + timedelta(days=1))
+    with col5: due_date = st.date_input("요청일 (Due)", date.today() + timedelta(days=7))
+    with col3: lab_done = st.date_input("완료일 (Done)", date.today() + timedelta(days=1))
     with col4:
         ship_date = get_shipping_date(due_date, sel_clinic)
-        st.date_input("출고일 (Shipping Date)", ship_date)
+        st.date_input("출고일 (Ship)", ship_date)
 
-    st.divider()
+    if st.button("🚀 작업 완료 및 저장"):
+        st.session_state.temp_db.append({
+            "Case #": case_no, "Patient": patient, "Clinic": sel_clinic,
+            "Material": material, "Done": lab_done, "Status": "Completed"
+        })
+        st.success("데이터가 저장되었습니다.")
 
-    if st.button("🚀 작업 완료 및 인보이스 생성"):
-        if not case_no or sel_clinic == "선택":
-            st.error("Case #와 Clinic은 필수 입력 사항입니다.")
-        else:
-            st.success(f"{case_no} 데이터 저장 완료!")
-            
-            # 인보이스 미리보기
-            invoice_html = f"""
-            <div class="invoice-box">
-                <h2 style="text-align: center;">INVOICE</h2>
-                <hr>
-                <p><strong>Invoice No:</strong> INV-{case_no}-{datetime.now().strftime('%m%d')}</p>
-                <p><strong>Clinic:</strong> {sel_clinic}</p>
-                <p><strong>Doctor:</strong> {sel_doctor}</p>
-                <p><strong>Patient:</strong> {patient}</p>
-                <hr>
-                <table style="width:100%; text-align:left;">
-                    <tr><th>Item Description</th><th>Arch</th><th>Amount</th></tr>
-                    <tr><td>Night Guard ({material})</td><td>{arch}</td><td>$ ---.--</td></tr>
-                </table>
-                <hr>
-                <p style="text-align: right;"><strong>Total: $ ---.--</strong></p>
-                <p style="font-size: 10px; color: gray;">Completed Date: {lab_done} | Received: {model_date_val}</p>
-            </div>
-            """
-            st.markdown(invoice_html, unsafe_allow_html=True)
+with tab2:
+    st.subheader("📊 정산 및 인센티브")
+    
+    # 320개 기준 정산 로직
+    total_completed = len(st.session_state.temp_db) + 318 # 시뮬레이션용 (318개 완료 상태)
+    goal = 320
+    extra_count = max(0, total_completed - goal)
+    
+    gross_pay = extra_count * 30.0 # 세전 $30
+    net_pay = extra_count * 19.505333 # 세후 약 $19.51
+    
+    # 상단 지표 카드
+    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+    with col_m1:
+        st.markdown(f"<div class='metric-card'><b>완료 실적</b><br><span style='font-size:22px;'>{total_completed} / {goal}</span></div>", unsafe_allow_html=True)
+    with col_m2:
+        st.markdown(f"<div class='metric-card'><b>초과 수량</b><br><span style='font-size:22px; color:#00ff00;'>+ {extra_count}</span></div>", unsafe_allow_html=True)
+    with col_m3:
+        st.markdown(f"<div class='metric-card'><b>추가 수당(세전)</b><br><span style='font-size:22px;'>$ {gross_pay:,.2f}</span></div>", unsafe_allow_html=True)
+    with col_m4:
+        st.markdown(f"<div class='metric-card'><b>실수령액(세후)</b><br><span style='font-size:22px; color:#00ff00;'>$ {net_pay:,.2f}</span></div>", unsafe_allow_html=True)
+    
+    st.progress(min(1.0, total_completed / goal))
+    
+    st.markdown("### ✅ 완료 리스트")
+    if st.session_state.temp_db:
+        st.table(pd.DataFrame(st.session_state.temp_db))
+
+with tab3:
+    st.write("🔍 검색 기능 준비 중")
