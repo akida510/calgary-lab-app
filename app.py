@@ -20,7 +20,7 @@ st.markdown("""
         border: 1px solid #4a4a4a !important; width: 100%; font-weight: bold;
     }
 
-    /* Letter 용지 비율 적용 */
+    /* Letter 용지 비율 (8.5 x 11 inch) */
     .invoice-container {
         width: 100%;
         display: flex;
@@ -38,20 +38,21 @@ st.markdown("""
         position: relative; box-sizing: border-box;
     }
 
+    /* 인보이스 내 텍스트 강제 검정 */
     .invoice-paper * { color: #000000 !important; }
 
+    /* 모바일 자동 축소 (한 화면에 다 들어오게) */
     @media (max-width: 850px) {
-        .invoice-container { justify-content: flex-start; padding-left: 10px; }
+        .invoice-container { justify-content: flex-start; }
         .invoice-paper {
-            transform: scale(0.42); transform-origin: top left;
-            margin-bottom: -600px; 
+            transform: scale(0.4); transform-origin: top left;
+            margin-bottom: -630px; 
         }
     }
     
     .inv-header { display: flex; justify-content: space-between; margin-bottom: 50px; }
     .logo-main { font-size: 55px; font-weight: 900; font-style: italic; color: #1a4e8a !important; letter-spacing: -3px; line-height: 1; margin:0; }
     .info-right { text-align: right; }
-    .info-right h1 { font-size: 40px; margin: 0 0 5px 0; font-weight: 500; letter-spacing: 2px; }
     
     .patient-line { 
         margin-top: 30px; padding: 15px 0;
@@ -60,23 +61,22 @@ st.markdown("""
     }
     
     .item-table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    .item-table th { border-bottom: 1px solid black; padding: 12px 0; text-align: left; font-size: 16px; }
+    .item-table th { border-bottom: 1px solid black; padding: 12px 0; text-align: left; }
     .item-table td { padding: 25px 0; font-size: 17px; }
 
     .invoice-footer { position: absolute; bottom: 60px; left: 70px; right: 70px; }
-    .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 20px; margin-bottom: 40px; }
-    .notice-box { border: 1.5px solid black; padding: 25px; text-align: center; }
-    .notice-box u { font-weight: bold; font-size: 16px; display: block; margin-bottom: 10px; }
-    .notice-box p { font-size: 12.5px; line-height: 1.5; margin: 0; }
+    .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 20px; margin-bottom: 30px; }
+    .notice-box { border: 1.5px solid black; padding: 20px; text-align: center; }
 
     @media print {
         @page { size: letter; margin: 0; }
-        .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-paper { transform: scale(1) !important; border: none !important; margin: 0 !important; width: 100% !important; height: auto !important; box-shadow: none !important; }
+        .stButton, [data-testid="stSidebar"], .stTabs, .stDivider { display: none !important; }
+        .invoice-paper { transform: scale(1) !important; border: none !important; margin: 0 !important; box-shadow: none !important; }
     }
     </style>
     """, unsafe_allow_html=True)
 
+# [데이터 로직]
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -85,54 +85,51 @@ ref_data = pd.DataFrame([
     {"Clinic": "My Smile Family Dental", "Doctor": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Phone": "(780) 455-6806"}
 ])
 
-tab1, tab2, tab3 = st.tabs(["📝 Case Entry", "📊 Management", "🔍 Search"])
+tab1, tab2 = st.tabs(["📝 등록", "📊 리스트"])
 
 with tab1:
-    st.markdown("### 📋 Case Information")
     c1, c2 = st.columns(2)
     with c1:
         case_no = st.text_input("Case No")
-        patient = st.text_input("Patient Name")
-        sel_clinic = st.selectbox("Clinic", ["Select Clinic"] + sorted(ref_data['Clinic'].tolist()))
+        patient = st.text_input("Patient")
+        sel_clinic = st.selectbox("Clinic", ["선택"] + sorted(ref_data['Clinic'].tolist()))
     with c2:
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
 
-    if st.button("💾 SAVE CASE"):
-        if sel_clinic == "Select Clinic" or not case_no:
-            st.error("Please fill in fields.")
-        else:
+    if st.button("💾 저장"):
+        if sel_clinic != "선택" and case_no:
             info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
                 "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
                 "Doctor": info['Doctor'], "Address": info['Address'], "Phone": info['Phone'],
                 "Material": material, "Arch": arch
             })
-            st.success("Saved.")
+            st.success("저장되었습니다.")
 
 with tab2:
     for i, row in enumerate(st.session_state.db):
-        c_i, c_b = st.columns([4, 1])
-        with c_i: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
-        with c_b:
-            if st.button("View Invoice", key=f"v_{i}"):
+        cols = st.columns([4, 1])
+        with cols[0]: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
+        with cols[1]:
+            if st.button("인보이스", key=f"btn_{i}"):
                 st.session_state.selected_invoice = st.session_state.db[i]
                 st.rerun()
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        inv_html = f"""
+        html_code = f"""
         <div class="invoice-container">
             <div class="invoice-paper">
                 <div class="inv-header">
                     <div>
-                        <p style="font-size:11px; font-weight:bold;">DENTAL TECHNOLOGY LTD</p>
+                        <p style="font-weight:bold; font-size:11px;">DENTAL TECHNOLOGY LTD</p>
                         <h1 class="logo-main">skycad</h1>
                         <p style="font-size:15px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
                     </div>
                     <div class="info-right">
-                        <h1>INVOICE</h1>
+                        <h1 style="font-size:40px;">INVOICE</h1>
                         <p>No. 162084</p>
                         <p>{date.today().strftime('%B %-d, %Y')}</p>
                         <div style="margin-top:35px; font-size:15px;">
@@ -149,19 +146,12 @@ with tab2:
                     <div class="total-line"><div>{inv['Case No']}</div><div>Total: $180.00</div></div>
                     <div class="notice-box">
                         <u>All dental products we offer are custom made in Canada.</u>
-                        <p>Please ensure your monthly payment is made within 30 days of statement. Thank you.</p>
+                        <p style="font-size:12px; margin-top:10px;">Please ensure your monthly payment is made within 30 days of statement. Thank you.</p>
                     </div>
                 </div>
             </div>
         </div>
         """
-        st.markdown(inv_html, unsafe_allow_html=True)
-        if st.button("🖨️ PRINT INVOICE"):
-            st.write('<script>window.print();</script>', unsafe_allow_html=True)                 </div>
-                </div>
-            </div>
-        </div>
-        """
-        st.markdown(invoice_html, unsafe_allow_html=True)
+        st.markdown(html_code, unsafe_allow_html=True)
         if st.button("🖨️ 인쇄하기"):
             st.write('<script>window.print();</script>', unsafe_allow_html=True)
