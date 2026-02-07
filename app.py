@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [수정 금지] 디자인 강제 고정
+# [수정 금지] 디자인 및 테마 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -16,6 +16,10 @@ st.markdown("""
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
+    }
+    /* 비활성화된 입력창 스타일 */
+    input:disabled {
+        background-color: #262730 !important; color: #777777 !important; border: 1px solid #333333 !important;
     }
     input::placeholder, textarea::placeholder { color: #aaaaaa !important; opacity: 1; }
     label p, .stMarkdown p, .stMetric p { color: #ffffff !important; font-weight: 600 !important; }
@@ -31,13 +35,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown(f"""
-    <div class="header-container">
-        <div style="font-size: 24px; font-weight: 800; color: #ffffff;">🦷 Skycad Lab Night Guard Manager</div>
-        <div style="text-align: right; color: #ffffff; font-size: 12px;">Designed By Heechul Jung</div>
-    </div>
-    """, unsafe_allow_html=True)
-
 # ---------------------------------------------------------
 # [데이터/로직 영역]
 # ---------------------------------------------------------
@@ -45,12 +42,12 @@ if 'ref_data' not in st.session_state:
     st.session_state.ref_data = pd.DataFrame([
         {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local"},
         {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier"},
-        {"Clinic": "Vancouver Dental", "Doctor": "Dr. Lee", "Region": "Courier"},
     ])
 
 if 'temp_db' not in st.session_state:
     st.session_state.temp_db = []
 
+# 평일 계산 함수 (토, 일 제외)
 def get_business_day(start_date, days_to_subtract):
     current_date = start_date
     while days_to_subtract > 0:
@@ -69,6 +66,8 @@ def get_shipping_date(due_date, clinic_name):
 # ---------------------------------------------------------
 # [메인 화면]
 # ---------------------------------------------------------
+st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800; color: #ffffff;">🦷 Skycad Lab Night Guard Manager</div><div style="text-align: right; color: #ffffff; font-size: 12px;">Designed By Heechul Jung</div></div>', unsafe_allow_html=True)
+
 tab1, tab2, tab3 = st.tabs(["📝 등록 및 완료", "📊 정산 대시보드", "🔍 검색"])
 
 with tab1:
@@ -76,10 +75,8 @@ with tab1:
     c1, c2 = st.columns(2)
     
     with c1:
-        # 요청하신 대로 라벨 명칭 변경
         case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
         patient = st.text_input("Patient(환자명)", placeholder="환자 성함을 입력하세요")
-        
         clinics = sorted(list(set(st.session_state.ref_data['Clinic'].tolist())))
         sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
         
@@ -89,8 +86,16 @@ with tab1:
         sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + filtered_docs)
         
     with c2:
+        # 3D Model 체크 여부
         is_3d = st.checkbox("3D Model", value=True)
-        model_date_val = "-" if is_3d else st.date_input("접수일", date.today())
+        
+        # 접수일 로직: 체크 시 오늘 날짜 표시하되 수정 불가, 체크 해제 시 수정 가능
+        if is_3d:
+            st.text_input("접수일", value=date.today().strftime("%Y-%m-%d"), disabled=True)
+            final_received_date = date.today()
+        else:
+            final_received_date = st.date_input("접수일", date.today())
+        
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
 
@@ -109,14 +114,14 @@ with tab1:
             st.error("Case No와 Clinic은 필수 입력 사항입니다.")
         else:
             st.session_state.temp_db.append({
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, "Doctor": sel_doctor,
-                "Material": material, "Done": lab_done, "Status": "Completed"
+                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
+                "Doctor": sel_doctor, "Material": material, "Received": final_received_date,
+                "Done": lab_done, "Status": "Completed"
             })
             st.success(f"{case_no} 케이스 저장 완료!")
 
 with tab2:
     st.subheader("📊 정산 현황")
-    # 정산 로직 (v1.9와 동일)
     total_completed = len(st.session_state.temp_db) + 318
     goal = 320
     extra_count = max(0, total_completed - goal)
