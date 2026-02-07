@@ -2,12 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [디자인 설정]
+# [페이지 설정]
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
+    /* 전체 배경 */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
+    
+    /* 입력창 스타일 */
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
@@ -16,21 +19,37 @@ st.markdown("""
     label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
         color: #ffffff !important; font-weight: 600 !important; 
     }
+
     .header-container {
         display: flex; justify-content: space-between; align-items: center;
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    /* 버튼 스타일 수정: 높이를 줄이고 슬림하게 */
+
+    /* 버튼 스타일 수정: 높이와 글자 크기를 세트로 줄여 세련되게 */
     .stButton>button { 
-        width: 100%; height: 2.4em !important; background-color: #4c6ef5 !important; 
-        color: white !important; font-weight: bold; border-radius: 5px; padding: 0 !important;
+        width: 100%; 
+        height: 2.2em !important; 
+        background-color: #2b3a67 !important; /* 촌스럽지 않은 다크블루 */
+        color: #dbe4ff !important; 
+        font-size: 12px !important; /* 글자 크기 축소 */
+        font-weight: 500 !important; 
+        border: 1px solid #4c6ef5 !important;
+        border-radius: 4px !important;
+        padding: 0 !important;
     }
+    .stButton>button:hover {
+        background-color: #4c6ef5 !important;
+        color: white !important;
+    }
+
+    /* 인보이스 컨테이너 */
     .invoice-container {
         background-color: white !important; color: black !important; 
         padding: 40px; border-radius: 5px; font-family: 'Arial', sans-serif;
     }
     .invoice-container * { color: black !important; line-height: 1.2; }
+
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
         .invoice-container { display: block !important; border: none !important; padding: 0 !important; }
@@ -38,6 +57,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# [데이터 및 로직 - 등록창 원본 유지]
+# ---------------------------------------------------------
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -102,7 +124,7 @@ with tab2:
     if not st.session_state.db: st.info("대기 중인 케이스가 없습니다.")
     else:
         for i, row in enumerate(st.session_state.db):
-            c_info, c_btn = st.columns([4, 1.8])
+            c_info, c_btn = st.columns([4, 2])
             with c_info:
                 st.markdown(f"**{'🟡' if row['Status']=='Pending' else '🟢'} {row['Case No']}** | {row['Patient']} | {row['Clinic']}")
             with c_btn:
@@ -152,8 +174,9 @@ with tab2:
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="padding:30px 5px 350px 5px; vertical-align:top; font-size:16px;">
+                        <td style="padding:30px 5px 0 5px; vertical-align:top; font-size:16px;">
                             Nightguard ({inv['Material']}) - {inv['Arch']}
+                            <svg width="1" height="400" style="display:block;"><rect width="1" height="400" fill="none"/></svg>
                         </td>
                         <td style="padding:30px 5px; vertical-align:top; text-align:right; font-size:16px;">$180.00</td>
                     </tr>
