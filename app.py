@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [수정 금지] 디자인 설정 및 테마 강제 고정
+# [디자인 설정]
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -21,9 +21,10 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
+    /* 버튼 스타일 수정: 높이를 줄이고 슬림하게 */
     .stButton>button { 
-        width: 100%; height: 3.5em; background-color: #4c6ef5 !important; 
-        color: white !important; font-weight: bold; border-radius: 5px; 
+        width: 100%; height: 2.4em !important; background-color: #4c6ef5 !important; 
+        color: white !important; font-weight: bold; border-radius: 5px; padding: 0 !important;
     }
     .invoice-container {
         background-color: white !important; color: black !important; 
@@ -93,25 +94,25 @@ with tab1:
                 "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
                 "Doctor": sel_doctor, "Material": material, "Arch": arch,
                 "Received": rec_date, "Due": due_date, "Lab Done": lab_done_date, "Status": "Pending",
-                "Addr": c_info.get('Addr', ''), "City": c_info.get('City', '')
+                "Addr": c_info['Addr'], "City": c_info['City']
             })
             st.success(f"{case_no}번 케이스 등록 완료!")
 
 with tab2:
-    if not st.session_state.db: st.info("현재 대기 중인 케이스가 없습니다.")
+    if not st.session_state.db: st.info("대기 중인 케이스가 없습니다.")
     else:
         for i, row in enumerate(st.session_state.db):
-            c_info, c_btn = st.columns([4, 1.5])
+            c_info, c_btn = st.columns([4, 1.8])
             with c_info:
                 st.markdown(f"**{'🟡' if row['Status']=='Pending' else '🟢'} {row['Case No']}** | {row['Patient']} | {row['Clinic']}")
             with c_btn:
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    if st.button("인보이스", key=f"inv_{i}"):
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("완료/인보이스출력", key=f"inv_{i}"):
                         st.session_state.db[i]['Status'] = "Completed"
                         st.session_state.selected_invoice = st.session_state.db[i]
                         st.rerun()
-                with col_b:
+                with col_btn2:
                     if row['Status'] == "Completed":
                         if st.button("취소", key=f"un_{i}"):
                             st.session_state.db[i]['Status'] = "Pending"
@@ -123,18 +124,18 @@ with tab2:
         st.divider()
         st.markdown(f"""
         <div class="invoice-container">
-            <table style="width:100%; border:none;">
+            <table style="width:100%; border-collapse:collapse;">
                 <tr>
                     <td style="vertical-align:top; width:60%;">
                         <span style="font-size:10px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
-                        <span style="font-size:55px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-3px; line-height:1.1;">skycad</span><br>
+                        <span style="font-size:55px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-3px; line-height:1;">skycad</span><br>
                         <div style="margin-top:15px; font-size:12px;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
                     </td>
                     <td style="vertical-align:top; text-align:right; width:40%;">
                         <h1 style="font-size:45px; margin:0; font-weight:400; letter-spacing:5px;">INVOICE</h1>
                         <p style="font-size:14px; margin-top:5px;">No. {inv['Case No'].replace('ET','')}<br>{inv['Lab Done'].strftime('%d/%m/%Y')}</p>
                         <div style="text-align:left; border:1px solid #000; padding:15px; width:220px; float:right; margin-top:10px; font-size:12px;">
-                            <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv.get('Addr','')}<br>{inv.get('City','')}
+                            <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Addr']}<br>{inv['City']}
                         </div>
                     </td>
                 </tr>
@@ -151,9 +152,8 @@ with tab2:
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="padding:30px 5px; vertical-align:top; font-size:16px;">
+                        <td style="padding:30px 5px 350px 5px; vertical-align:top; font-size:16px;">
                             Nightguard ({inv['Material']}) - {inv['Arch']}
-                            <svg width="100%" height="400px" style="display:block;"><rect width="100%" height="400px" fill="transparent"/></svg>
                         </td>
                         <td style="padding:30px 5px; vertical-align:top; text-align:right; font-size:16px;">$180.00</td>
                     </tr>
@@ -167,7 +167,7 @@ with tab2:
                 </tr>
             </table>
 
-            <div style="text-align:center; margin-top:20px;">
+            <div style="text-align:center; margin-top:30px;">
                 <div style="font-size:17px; font-weight:bold; text-decoration:underline; margin-bottom:15px;">All dental products we offer are custom made in Canada.</div>
                 <p style="font-size:11px; line-height:1.6; padding:0 40px;">Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.</p>
             </div>
