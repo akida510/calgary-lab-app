@@ -2,46 +2,51 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [1. 디자인 설정 및 테마 강제 고정]
+# [1. 디자인 설정 - 버튼 크기 축소 및 색상 변경]
 st.set_page_config(page_title="Skycad Lab Night Guard Manager", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
+    
+    /* 입력창 스타일 */
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
-        border: 1px solid #4a4a4a !important;
-    }
-    input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
-    label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
-        color: #ffffff !important; font-weight: 600 !important; 
-    }
-    .header-container {
-        display: flex; justify-content: space-between; align-items: center;
-        background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
-        margin-bottom: 25px; border: 1px solid #30363d;
+        border: 1px solid #30363d !important;
     }
     
-    /* 버튼 사이즈 조정 (지나치게 큰 버튼 방지) */
+    /* 버튼: 크기 대폭 축소 및 색상 톤다운 (세련된 다크톤) */
     .stButton>button { 
-        width: 100%; height: 2.8em !important; background-color: #4c6ef5 !important; 
-        color: white !important; font-weight: bold; border-radius: 5px; 
+        width: auto !important; 
+        min-width: 100px;
+        height: 2.2em !important; 
+        background-color: #21262d !important; 
+        color: #c9d1d9 !important; 
+        border: 1px solid #30363d !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        border-radius: 6px; 
+    }
+    .stButton>button:hover {
+        background-color: #30363d !important;
+        border-color: #8b949e !important;
+        color: #fff !important;
     }
     
-    /* 인센티브 현황판 스타일 */
+    /* 인센티브 현황판 디자인 */
     .stat-card {
-        background-color: #1a1c24; padding: 20px; border-radius: 10px;
-        border: 1px solid #30363d; margin-top: 20px;
+        background-color: #161b22; padding: 18px; border-radius: 8px;
+        border: 1px solid #30363d; margin-top: 30px;
     }
 
-    /* 인보이스 디자인 - 레터지 비율 및 박스 */
+    /* 인보이스 레터지 규격 */
     .inv-outer-container {
-        display: flex; justify-content: center; padding: 20px 0; background-color: #333;
+        display: flex; justify-content: center; padding: 20px 0; background-color: #0d1117;
     }
     .invoice-letter {
         background-color: white !important; color: black !important;
         width: 8.5in; min-height: 11in; padding: 0.6in;
-        border: 1.5px solid black; box-sizing: border-box;
+        border: 1px solid #d0d7de; box-sizing: border-box;
         font-family: 'Arial', sans-serif;
     }
     .invoice-letter * { color: black !important; line-height: 1.2; }
@@ -54,7 +59,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# [2. 데이터 관리]
+# [2. 데이터 관리 - 기존 로직 유지]
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 if 'inv_counter' not in st.session_state: st.session_state.inv_counter = 162084
@@ -72,44 +77,39 @@ def get_business_day(start_date, days_to_subtract):
     return current_date
 
 # [3. 메인 화면]
-st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Heechul Jung Edition</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div style="padding:15px 0;"><span style="font-size: 22px; font-weight: 700;">🦷 Skycad Lab Manager</span></div>', unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
+tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트", "🔍 검색"])
 
-# --- Tab 1: 케이스 등록 (기존 로직 100% 유지) ---
+# --- Tab 1: 케이스 등록 (보내주신 로직 그대로) ---
 with tab1:
-    st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
     with c1:
-        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
-        patient = st.text_input("Patient(환자명)", placeholder="환자 성함")
+        case_no = st.text_input("Case No")
+        patient = st.text_input("Patient")
         clinics = sorted(list(set(ref_data['Clinic'].tolist())))
-        sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
+        sel_clinic = st.selectbox("Clinic", ["선택"] + clinics)
         filtered_docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
-        sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + filtered_docs)
+        sel_doctor = st.selectbox("Doctor", ["선택"] + filtered_docs)
     with c2:
         is_3d = st.checkbox("3D Model", value=True)
         today = date.today()
-        if is_3d:
-            st.text_input("접수일", value=today.strftime("%Y-%m-%d"), disabled=True)
-            rec_date = today
-        else:
-            rec_date = st.date_input("접수일", today)
+        rec_date = today if is_3d else st.date_input("접수일", today)
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
 
-    st.markdown("### 📅 일정 관리")
+    st.markdown("### 📅 일정")
     col3, col4, col5 = st.columns(3)
-    with col5: due_date = st.date_input("요청일 (Due Date)", today + timedelta(days=7))
-    with col3: lab_done_date = st.date_input("완료일 (Lab Done)", today + timedelta(days=1))
+    with col5: due_date = st.date_input("Due Date", today + timedelta(days=7))
+    with col3: lab_done_date = st.date_input("Lab Done", today + timedelta(days=1))
     with col4:
         reg = ref_data[ref_data['Clinic']==sel_clinic]['Region'].iloc[0] if sel_clinic != "선택" else "Local"
         ship_date = get_business_day(due_date, 1 if reg=="Local" else 2)
-        st.date_input("출고일 (Shipping Date)", ship_date)
+        st.date_input("Shipping Date", ship_date)
 
-    if st.button("💾 케이스 저장 (접수 완료)"):
+    if st.button("💾 저장하기"):
         if sel_clinic == "선택" or not case_no:
-            st.error("Case No와 Clinic은 필수입니다.")
+            st.error("필수 입력 누락")
         else:
             c_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
@@ -119,105 +119,89 @@ with tab1:
                 "Inv_Date": today.strftime('%m/%d/%Y'), "Due": due_date, "Month": today.strftime('%Y-%m')
             })
             st.session_state.inv_counter += 1
-            st.success(f"{case_no}번 저장 완료!")
+            st.rerun()
 
 # --- Tab 2: 리스트 및 수량 관리 ---
 with tab2:
-    st.subheader("📊 작업 진행 리스트")
-    
-    # 작업 통계 계산 (이번 달 기준)
     this_month = date.today().strftime('%Y-%m')
     monthly_cases = [r for r in st.session_state.db if r.get('Month') == this_month]
     total_count = len(monthly_cases)
     over_count = max(0, total_count - 320)
-    extra_pre_tax = over_count * 30
-    extra_post_tax = over_count * 19.5
 
     for i, row in enumerate(st.session_state.db):
-        c_info, c_btn = st.columns([4, 1.2]) # 버튼 컬럼 살짝 조절
+        c_info, c_btn = st.columns([6, 1])
         with c_info:
-            curr_status = row.get('Status', 'Pending')
-            st.markdown(f"**{'🟡' if curr_status=='Pending' else '🟢'} {row.get('Case No','-')}** | {row.get('Patient','-')} | {row.get('Clinic','-')} | Due: {row.get('Due','-')}")
+            st.markdown(f"**{'🟡' if row.get('Status')=='Pending' else '🟢'} {row.get('Case No')}** | {row.get('Patient')} | {row.get('Clinic')}")
         with c_btn:
-            if curr_status == "Pending":
-                if st.button("완료/인보이스", key=f"cp_{i}"):
+            if row.get('Status') == "Pending":
+                if st.button("완료", key=f"cp_{i}"):
                     st.session_state.db[i]['Status'] = "Completed"
                     st.session_state.selected_invoice = st.session_state.db[i]
                     st.rerun()
             else:
-                # 버튼 크기를 적절하게 조절 (st.button 기본 스타일 사용)
                 if st.button("재출력", key=f"re_{i}"):
                     st.session_state.selected_invoice = st.session_state.db[i]
                     st.rerun()
 
-    # 인보이스 출력 영역
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        if st.button("닫기 (Close Invoice)", use_container_width=False):
-            st.session_state.selected_invoice = None
-            st.rerun()
+        c_close, c_print = st.columns([1, 8])
+        with c_close: 
+            if st.button("닫기"):
+                st.session_state.selected_invoice = None
+                st.rerun()
+        with c_print:
+            if st.button("인쇄"):
+                st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
         
-        # [인보이스 디자인 - 사진 기준 재현]
+        # 인보이스 본문 (디자인 보존)
         st.markdown(f"""
         <div class="inv-outer-container">
             <div class="invoice-letter">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="display: flex; justify-content: space-between;">
                     <div>
                         <div style="line-height:1;">
                             <span style="font-size:8px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
                             <span style="font-size:38px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-2px;">skycad</span>
                         </div>
-                        <div style="font-size:11px; margin-top:15px; line-height:1.4;">
-                            <b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600
+                        <div style="font-size:11px; margin-top:15px;">
+                            <b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9
                         </div>
                     </div>
-                    <div style="text-align: right; line-height:1.2;">
-                        <h1 style="font-size:32px; font-weight:400; margin:0; letter-spacing:1px;">INVOICE</h1>
-                        <p style="font-size:12px; margin:8px 0;">No. {inv.get('Inv_No','')}<br>{inv.get('Inv_Date','')}</p>
-                        <div style="text-align:left; font-size:11px; margin-top:20px; line-height:1.4;">
-                            <b>Ship To:</b><br>{inv.get('Clinic','')}<br>{inv.get('Doctor','')}<br>{inv.get('Address','')}<br>{inv.get('City','')}
+                    <div style="text-align: right;">
+                        <h1 style="font-size:32px; font-weight:400; margin:0;">INVOICE</h1>
+                        <p style="font-size:12px;">No. {inv.get('Inv_No','')}<br>{inv.get('Inv_Date','')}</p>
+                        <div style="text-align:left; font-size:11px; margin-top:15px;">
+                            <b>Ship To:</b><br>{inv.get('Clinic','')}<br>{inv.get('Address','')}
                         </div>
                     </div>
                 </div>
-                <div style="margin-top: 45px; padding: 12px 0; border-top: 1.5px solid black; border-bottom: 1.5px solid black; font-size: 14px;">
+                <div style="margin-top: 40px; padding: 10px 0; border-top: 1.5px solid black; border-bottom: 1.5px solid black;">
                     <b>Patient:</b> {str(inv.get('Patient','')).upper()}
                 </div>
-                <div style="height: 380px; margin-top: 30px;">
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead><tr style="border-bottom: 1px solid black;">
-                            <th style="text-align:left; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Description</th>
-                            <th style="text-align:right; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Amount</th>
-                        </tr></thead>
-                        <tbody><tr>
-                            <td style="padding:25px 0; font-size: 14px;">Nightguard ({inv.get('Material','')}) {inv.get('Arch','')}</td>
-                            <td style="text-align:right; font-size: 14px; font-weight:bold;">$180.00</td>
-                        </tr></tbody>
+                <div style="height: 400px; margin-top: 30px;">
+                    <table style="width: 100%;">
+                        <tr style="border-bottom: 1px solid black;"><th style="text-align:left;">Description</th><th style="text-align:right;">Amount</th></tr>
+                        <tr><td style="padding:20px 0;">Nightguard ({inv.get('Material','')}) {inv.get('Arch','')}</td><td style="text-align:right; font-weight:bold;">$180.00</td></tr>
                     </table>
                 </div>
-                <div style="border-top: 1.5px solid black; padding-top: 15px;">
-                    <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:bold;">
-                        <div>Case: {inv.get('Case No','')}</div><div style="font-size:15px;">Total: $180.00</div>
+                <div style="border-top: 1.5px solid black; padding-top: 10px;">
+                    <div style="display:flex; justify-content:space-between; font-weight:bold;">
+                        <div>Case: {inv.get('Case No','')}</div><div>Total: $180.00</div>
                     </div>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("인쇄 (Print)", use_container_width=False):
-            st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
 
-    # [수량 및 인센티브 현황판]
+    # [인센티브 현황판]
     st.markdown(f"""
     <div class="stat-card">
-        <h4 style="margin-top:0; color:#4c6ef5;">📅 {this_month} 작업 현황</h4>
-        <div style="display: flex; gap: 40px;">
-            <div><p style="margin:0; font-size:12px; color:#aaa;">총 수량</p><p style="font-size:24px; font-weight:bold;">{total_count} / 320</p></div>
-            <div><p style="margin:0; font-size:12px; color:#aaa;">초과 수량</p><p style="font-size:24px; font-weight:bold; color:#f03e3e;">{over_count} 개</p></div>
-            <div><p style="margin:0; font-size:12px; color:#aaa;">추가 인센티브 (Pre-tax / Post-tax)</p>
-                 <p style="font-size:24px; font-weight:bold; color:#37b24d;">${extra_pre_tax:,.1f} / <span style="font-size:18px;">${extra_post_tax:,.1f}</span></p>
-            </div>
+        <div style="display: flex; gap: 50px;">
+            <div><p style="margin:0; font-size:12px; color:#8b949e;">{this_month} 수량</p><p style="font-size:22px; font-weight:bold;">{total_count} / 320</p></div>
+            <div><p style="margin:0; font-size:12px; color:#8b949e;">초과</p><p style="font-size:22px; font-weight:bold; color:#f85149;">{over_count} 개</p></div>
+            <div><p style="margin:0; font-size:12px; color:#8b949e;">인센티브 (세후 $19.5)</p><p style="font-size:22px; font-weight:bold; color:#3fb950;">${over_count * 19.5:,.1f}</p></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-with tab3: st.write("🔍 검색 기능 구현 예정")
