@@ -22,35 +22,67 @@ st.markdown("""
     }
     .stButton>button { width: 100%; height: 3.5em; background-color: #4c6ef5 !important; color: white !important; font-weight: bold; }
 
-    /* 인보이스 출력 스타일 (사진 복사) */
+    /* [핵심] 사진과 똑같은 인보이스 레이아웃 */
     .invoice-paper {
         background-color: white !important; color: black !important;
-        padding: 50px; border: 1px solid #eee; font-family: 'Arial', sans-serif;
-        width: 100%; max-width: 800px; margin: 0 auto;
+        padding: 60px 50px; border: 1px solid #000; font-family: 'Helvetica', 'Arial', sans-serif;
+        width: 100%; max-width: 850px; margin: 0 auto; min-height: 1000px;
+        position: relative;
     }
-    .invoice-paper * { color: black !important; margin: 0; }
-    .inv-header { display: flex; justify-content: space-between; margin-bottom: 30px; }
-    .logo-area h1 { font-size: 42px; color: #1a4a8a !important; font-style: italic; font-weight: 900; }
-    .patient-area { border-top: 2px solid black; border-bottom: 2px solid black; padding: 12px 0; margin: 20px 0; font-weight: bold; }
-    .footer-box { border: 1px solid black; padding: 15px; margin-top: 30px; text-align: center; }
+    .invoice-paper * { color: black !important; margin: 0; padding: 0; line-height: 1.2; }
     
+    /* 상단 영역 */
+    .top-section { display: flex; justify-content: space-between; margin-bottom: 50px; }
+    
+    /* 로고 텍스트 스타일링 */
+    .logo-container { position: relative; }
+    .logo-small { font-size: 8px; font-weight: bold; letter-spacing: 0.5px; margin-bottom: -5px; }
+    .logo-main { font-size: 52px; font-weight: 900; font-style: italic; color: #1a4e8a !important; letter-spacing: -2px; }
+    .company-info { font-size: 13px; margin-top: 5px; line-height: 1.4; }
+    
+    /* 우측 상단 정보 */
+    .info-right { text-align: right; }
+    .info-right h1 { font-size: 32px; font-weight: 400; margin-bottom: 5px; }
+    .info-right p { font-size: 14px; margin-bottom: 2px; }
+    .ship-to { margin-top: 25px; font-size: 14px; text-align: left; float: right; width: 220px; }
+    .ship-to b { display: block; margin-bottom: 5px; }
+
+    /* 중앙 환자 영역 */
+    .patient-line { 
+        clear: both; margin-top: 160px; padding: 12px 0;
+        border-top: 1.5px solid black; border-bottom: 1.5px solid black;
+        font-size: 16px; font-weight: bold;
+    }
+    
+    /* 테이블 영역 */
+    .item-table { width: 100%; margin-top: 10px; border-collapse: collapse; }
+    .item-table th { text-align: left; border-bottom: 1px solid #ccc; padding: 5px 0; font-size: 15px; }
+    .item-table td { padding: 15px 0; font-size: 15px; }
+    
+    /* 하단 금액 및 박스 */
+    .bottom-section { margin-top: 350px; }
+    .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; margin-bottom: 30px; }
+    
+    .notice-box { border: 1.5px solid black; padding: 25px 20px; text-align: center; }
+    .notice-box u { font-size: 16px; font-weight: bold; display: block; margin-bottom: 12px; }
+    .notice-box p { font-size: 11.5px; line-height: 1.5; color: #333 !important; }
+
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-paper { border: none !important; padding: 0 !important; width: 100% !important; }
+        .invoice-paper { border: none !important; padding: 0 !important; width: 100% !important; max-width: none !important; }
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# [로직 영역] 데이터 및 날짜 계산
+# [데이터 관리]
 # ---------------------------------------------------------
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
-# 병원 레퍼런스 데이터 (주소 정보 추가 예정)
 ref_data = pd.DataFrame([
-    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local", "Address": "Calgary, AB", "Phone": "(403) 000-0000"},
-    {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier", "Address": "Edmonton, AB", "Phone": "(780) 000-0000"},
+    {"Clinic": "My Smile Family Dental", "Doctor": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB TSL 189", "Phone": "(780) 455-6806", "Region": "Courier"},
+    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Address": "205-7136 11 St NE, Calgary, AB", "Phone": "(403) 970-0600", "Region": "Local"}
 ])
 
 def get_business_day(start_date, days_to_subtract):
@@ -71,7 +103,7 @@ with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
     with c1:
-        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
+        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET12")
         patient = st.text_input("Patient(환자명)")
         clinics = sorted(list(set(ref_data['Clinic'].tolist())))
         sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
@@ -86,9 +118,9 @@ with tab1:
         else:
             rec_date = st.date_input("접수일", today)
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
-        arch = st.radio("Arch", ["Upper", "Lower", "Both"], horizontal=True)
+        arch = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
 
-    st.markdown("### 📅 일정 관리") # 복구 완료!
+    st.markdown("### 📅 일정 관리")
     col3, col4, col5 = st.columns(3)
     with col5: due_date = st.date_input("요청일 (Due Date)", today + timedelta(days=7))
     with col3: lab_done_date = st.date_input("완료일 (Lab Done)", today + timedelta(days=1))
@@ -99,11 +131,13 @@ with tab1:
 
     if st.button("💾 케이스 저장"):
         if sel_clinic == "선택" or not case_no:
-            st.error("Case No와 병원명은 필수입니다.")
+            st.error("필수 정보를 입력하세요.")
         else:
+            clinic_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, "Doctor": sel_doctor,
-                "Material": material, "Arch": arch, "Due": due_date, "Lab Done": lab_done_date, "Status": "Pending"
+                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
+                "Doctor": sel_doctor, "Address": clinic_info['Address'], "Phone": clinic_info['Phone'],
+                "Material": material, "Arch": arch, "Lab Done": lab_done_date, "Status": "Pending"
             })
             st.success(f"{case_no} 저장 완료!")
 
@@ -120,33 +154,61 @@ with tab2:
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
+        
         invoice_html = f"""
         <div class="invoice-paper">
-            <div class="inv-header">
-                <div>
-                    <p style="font-size:9px; letter-spacing:1px;">DENTAL TECHNOLOGY LTD</p>
-                    <h1>skycad</h1>
-                    <p style="font-size:12px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
+            <div class="top-section">
+                <div class="logo-container">
+                    <p class="logo-small">DENTAL TECHNOLOGY LTD</p>
+                    <h1 class="logo-main">skycad</h1>
+                    <div class="company-info">
+                        <b>Skycad AB</b><br>
+                        205-7136 11 St NE<br>
+                        Calgary, AB T2E 4Y9<br>
+                        (403) 970-0600
+                    </div>
                 </div>
-                <div style="text-align:right;">
-                    <h2 style="font-size:28px;">INVOICE</h2>
-                    <p>No. 162084</p><p>{date.today().strftime('%-m/%-d/%Y')}</p><br>
-                    <p style="font-size:13px;"><b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}</p>
+                <div class="info-right">
+                    <h1>INVOICE</h1>
+                    <p>No. 162084</p>
+                    <p>{date.today().strftime('%-m/%-d/%Y')}</p>
+                    <div class="ship-to">
+                        <b>Ship To:</b>
+                        {inv['Clinic']}<br>
+                        {inv['Doctor']}<br>
+                        {inv['Address']}<br>
+                        {inv['Phone']}
+                    </div>
                 </div>
             </div>
-            <div class="patient-area">Patient: &nbsp; {inv['Patient'].upper()}</div>
-            <table style="width:100%; margin: 20px 0; border-collapse:collapse;">
-                <thead><tr style="border-bottom:1px solid black;"><th style="text-align:left; padding-bottom:5px;">Description</th><th style="text-align:right; padding-bottom:5px;">Amount</th></tr></thead>
-                <tbody><tr><td style="padding-top:10px;">Nightguard ({inv['Material']}) {inv['Arch'].upper()}</td><td style="text-align:right; padding-top:10px;">$180.00</td></tr></tbody>
+
+            <div class="patient-line">
+                Patient: &nbsp; {inv['Patient'].upper()}
+            </div>
+
+            <table class="item-table">
+                <thead>
+                    <tr><th>Description</th><th style="text-align:right;">Amount</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Nightguard ({inv['Material']}) {inv['Arch']}</td>
+                        <td style="text-align:right;">$180.00</td>
+                    </tr>
+                </tbody>
             </table>
-            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-top:80px;">
-                <div>{inv['Case No']}</div><div>Total: $180.00</div>
-            </div>
-            <div class="footer-box">
-                <p style="text-decoration:underline; font-weight:bold; margin-bottom:10px;">All dental products we offer are custom made in Canada.</p>
-                <p style="font-size:11px;">Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.552% APR, Thank you.</p>
+
+            <div class="bottom-section">
+                <div class="total-line">
+                    <div>{inv['Case No']}</div>
+                    <div>Total: $180.00</div>
+                </div>
+                <div class="notice-box">
+                    <u>All dental products we offer are custom made in Canada.</u>
+                    <p>Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.552% APR, Thank you.</p>
+                </div>
             </div>
         </div>
         """
         st.markdown(invoice_html, unsafe_allow_html=True)
-        st.button("🖨️ 인보이스 출력", on_click=None)
+        st.button("🖨️ 인쇄 / PDF 저장")
