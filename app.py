@@ -1,181 +1,162 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, timedelta, date
 
-# [1. 기본 설정 및 디자인]
-st.set_page_config(page_title="skycad lab night gaurd manager", layout="wide")
-
-now = datetime.now()
-current_month = now.strftime('%m월')
-POST_TAX_UNIT = 19.505333
+# [수정 금지] 디자인 설정 및 테마 강제 고정
+st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
-<style>
-    .stApp { background-color: #0e1117 !important; }
-    .main-header { padding: 10px 0 20px 0; border-bottom: 1px solid #333; margin-bottom: 20px; }
-    .main-title { color: #ffffff !important; font-size: 1.8rem; font-weight: 800; margin: 0; }
-    .inv-container { background-color: rgba(0,0,0,0.9); padding: 40px 10px; display: flex; justify-content: center; width: 100%; }
-    .inv-paper { 
-        background-color: white !important; width: 100%; max-width: 800px; 
-        min-height: 1000px; padding: 60px; border: 2.3px solid black; box-sizing: border-box;
+    <style>
+    /* 전체 배경 및 글자색 강제 고정 (모바일 다크모드 대응) */
+    .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
+    
+    /* 입력창 및 선택창 글자색 흰색으로 고정 */
+    input, select, textarea, div[data-baseweb="select"] {
+        background-color: #1a1c24 !important; color: #ffffff !important;
+        border: 1px solid #4a4a4a !important;
     }
-    .inv-paper * { color: black !important; font-family: 'Arial', sans-serif !important; }
-    .notice-box { border: 1.5px solid black; padding: 15px; text-align: center; font-size: 11px; line-height: 1.4; margin-top: 30px; }
-</style>
-""", unsafe_allow_html=True)
+    
+    /* 비활성화된 입력창(접수일 등) 스타일 */
+    input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
+    
+    /* 라벨 및 텍스트 가독성 확보 */
+    label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
+        color: #ffffff !important; font-weight: 600 !important; 
+    }
 
-# [2. 데이터 및 참조 정보]
-if 'db' not in st.session_state: st.session_state.db = []
-if 'inv_counter' not in st.session_state: st.session_state.inv_counter = 162084
-if 'active_invoice' not in st.session_state: st.session_state.active_invoice = None
+    .header-container {
+        display: flex; justify-content: space-between; align-items: center;
+        background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
+        margin-bottom: 25px; border: 1px solid #30363d;
+    }
+    
+    .stButton>button { 
+        width: 100%; height: 3.5em; background-color: #4c6ef5 !important; 
+        color: white !important; font-weight: bold; border-radius: 5px; 
+    }
+    
+    /* 인보이스 출력용 스타일 */
+    .invoice-container {
+        background-color: white !important; color: black !important; 
+        padding: 30px; border-radius: 5px; font-family: 'Arial', sans-serif;
+    }
+    .invoice-container * { color: black !important; } /* 인보이스 내부 글자는 무조건 검정 */
 
-ref_data = pd.DataFrame([
-    {"Clinic": "My Smile Family Dental", "Dr": "Dr. Arshpreet Kaur", "Address": "13510 127 St NW", "City": "Edmonton, Alberta T5L 1B9", "Phone": "(780) 455-6806"},
-    {"Clinic": "Calgary Central Dental", "Dr": "Dr. Lana Huynh", "Address": "205-7136 11 St NE", "City": "Calgary, AB T2E 4Y9", "Phone": "(403) 970-0600"}
-])
-all_clinics = sorted(ref_data["Clinic"].unique().tolist())
-all_doctors = sorted(ref_data["Dr"].unique().tolist())
-
-# [3. 대시보드]
-st.markdown(f"""
-    <div class="main-header"><h1 class="main-title">🦷 skycad lab night gaurd manager</h1></div>
-    <div style="margin-bottom:20px; color:#4ade80; font-weight:bold; font-size:1.1rem;">
-        {current_month} 실적: {len(st.session_state.db)}건 | 예상 수익: ${len(st.session_state.db)*POST_TAX_UNIT:,.2f}
-    </div>
+    @media print {
+        .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown { display: none !important; }
+        .invoice-container { display: block !important; border: none !important; }
+    }
+    </style>
     """, unsafe_allow_html=True)
 
-# [4. 메인 기능]
-tab1, tab2 = st.tabs(["📝 케이스 등록 및 일정", "📊 리스트 및 인보이스"])
+# ---------------------------------------------------------
+# [데이터 관리] 
+# ---------------------------------------------------------
+if 'db' not in st.session_state: st.session_state.db = []
+if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
+ref_data = pd.DataFrame([
+    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local"},
+    {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier"},
+])
+
+def get_business_day(start_date, days_to_subtract):
+    current_date = start_date
+    while days_to_subtract > 0:
+        current_date -= timedelta(days=1)
+        if current_date.weekday() < 5: days_to_subtract -= 1
+    return current_date
+
+# ---------------------------------------------------------
+# [메인 화면]
+# ---------------------------------------------------------
+st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Heechul Jung Edition</div></div>', unsafe_allow_html=True)
+
+tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
+
+# --- Tab 1: 케이스 등록 ---
 with tab1:
-    st.session_state.active_invoice = None  # 등록창에서는 인보이스 안 뜨게 초기화
-    
-    # 레이아웃 구성
+    st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
-    
     with c1:
-        st.subheader("📌 기본 정보")
-        case_no = st.text_input("Case No (팬번호)")
-        patient = st.text_input("Patient (환자명)")
-        
-        # 병원명 선택/입력
-        sel_cln = st.selectbox("Clinic (병원명) 선택", ["선택하세요", "직접 입력"] + all_clinics)
-        final_cln = st.text_input("병원명 직접 입력") if sel_cln == "직접 입력" else (sel_cln if sel_cln != "선택하세요" else "")
-
-        # 의사명 선택/입력
-        auto_dr = ""
-        if final_cln in ref_data["Clinic"].values:
-            auto_dr = ref_data[ref_data["Clinic"] == final_cln]["Dr"].iloc[0]
-        
-        sel_dr = st.selectbox("Dr (의사명) 선택", ["선택하세요", "직접 입력"] + all_doctors, 
-                              index=all_doctors.index(auto_dr)+2 if auto_dr in all_doctors else 0)
-        final_dr = st.text_input("의사명 직접 입력") if sel_dr == "직접 입력" else (sel_dr if sel_dr != "선택하세요" else "")
-
-        st.markdown("---")
-        st.subheader("⚒️ 제작 사양")
-        mat = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
-        arc = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
-
+        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
+        patient = st.text_input("Patient(환자명)", placeholder="환자 성함")
+        clinics = sorted(list(set(ref_data['Clinic'].tolist())))
+        sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
+        filtered_docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
+        sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + filtered_docs)
     with c2:
-        st.subheader("📅 일정 관리 (필수)")
-        # 접수 형태
-        model_type = st.radio("접수 형태", ["3D 디지털 스캔", "일반 모델(석고)"], horizontal=True)
-        
-        # 날짜들 (처음 기획하신 대로 모두 복구)
-        col_date1, col_date2 = st.columns(2)
-        with col_date1:
-            receive_date = st.date_input("접수일(Received)", value=date.today())
-            request_date = st.date_input("요청일(Requested)", value=date.today() + timedelta(days=7))
-        with col_date2:
-            complete_date = st.date_input("완료일(Completed)", value=date.today() + timedelta(days=6))
-            ship_date = st.date_input("출고일(Shipped)", value=date.today() + timedelta(days=7))
-            
-        inv_date = st.date_input("Invoice Date (인보이스 발행일)", value=date.today())
-
-    # 저장 버튼
-    if st.button("💾 모든 정보 저장 및 창 초기화", use_container_width=True):
-        if case_no and final_cln:
-            c_info = ref_data[ref_data["Clinic"] == final_cln].iloc[0] if final_cln in ref_data["Clinic"].values else {"Address": "", "City": "", "Phone": ""}
-            st.session_state.db.append({
-                "Inv_No": st.session_state.inv_counter,
-                "Case No": case_no,
-                "Patient": patient,
-                "Clinic": final_cln,
-                "Dr": final_dr,
-                "Address": c_info.get("Address", ""),
-                "City": c_info.get("City", ""),
-                "Phone": c_info.get("Phone", ""),
-                "Material": mat,
-                "Arch": arc,
-                "Date": inv_date.strftime('%m/%d/%Y'),
-                "Schedule": {
-                    "Type": model_type,
-                    "Received": receive_date.strftime('%Y-%m-%d'),
-                    "Requested": request_date.strftime('%Y-%m-%d'),
-                    "Completed": complete_date.strftime('%Y-%m-%d'),
-                    "Shipped": ship_date.strftime('%Y-%m-%d')
-                }
-            })
-            st.session_state.inv_counter += 1
-            st.success(f"케이스 {case_no}번 저장 완료!")
-            st.rerun()
+        is_3d = st.checkbox("3D Model", value=True)
+        today = date.today()
+        if is_3d:
+            st.text_input("접수일", value=today.strftime("%Y-%m-%d"), disabled=True)
+            rec_date = today
         else:
-            st.error("Case No와 병원명은 필수입니다.")
+            rec_date = st.date_input("접수일", today)
+        material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
+        arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
 
+    st.markdown("### 📅 일정 관리")
+    col3, col4, col5 = st.columns(3)
+    
+    with col5: 
+        due_date = st.date_input("요청일 (Due Date)", today + timedelta(days=7))
+    with col3: 
+        # 복구된 완료예정일: 기본값은 오늘 + 1일
+        lab_done_date = st.date_input("완료일 (Lab Done)", today + timedelta(days=1))
+    with col4:
+        # 출고일 자동 계산
+        ship_date = get_business_day(due_date, 1 if (sel_clinic != "선택" and ref_data[ref_data['Clinic']==sel_clinic]['Region'].iloc[0]=="Local") else 2)
+        st.date_input("출고일 (Shipping Date)", ship_date)
+
+    if st.button("💾 케이스 저장 (접수 완료)"):
+        if sel_clinic == "선택" or not case_no:
+            st.error("Case No와 Clinic은 필수 입력 사항입니다.")
+        else:
+            new_case = {
+                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
+                "Doctor": sel_doctor, "Material": material, "Arch": arch,
+                "Received": rec_date, "Due": due_date, "Lab Done": lab_done_date, "Status": "Pending"
+            }
+            st.session_state.db.append(new_case)
+            st.success(f"{case_no}번 케이스 등록 완료!")
+
+# --- Tab 2: 리스트 및 완료 처리 ---
 with tab2:
-    st.markdown("### 📊 케이스 관리 리스트")
-    for i, row in enumerate(st.session_state.db):
-        col_info, col_btn = st.columns([5, 1])
-        with col_info:
-            sched = row.get('Schedule', {})
-            # 리스트에 일정 요약 표시
-            st.write(f"**No. {row['Inv_No']}** | {row['Patient']} ({row['Clinic']})")
-            st.caption(f"📅 접수: {sched.get('Received','-')} | 완료: {sched.get('Completed','-')} | 출고: {sched.get('Shipped','-')} ({sched.get('Type','-')})")
-        with col_btn:
-            if st.button("🔍 Invoice", key=f"btn_inv_{i}"):
-                st.session_state.active_invoice = row
+    st.subheader("📊 작업 진행 리스트")
+    if not st.session_state.db:
+        st.info("현재 대기 중인 케이스가 없습니다.")
+    else:
+        for i, row in enumerate(st.session_state.db):
+            c_info, c_btn = st.columns([4, 1])
+            with c_info:
+                st.markdown(f"**{'🟡' if row['Status']=='Pending' else '🟢'} {row['Case No']}** | {row['Patient']} | {row['Clinic']} | Due: {row['Due']}")
+            with c_btn:
+                if row['Status'] == "Pending":
+                    if st.button(f"완료 및 인보이스", key=f"comp_{i}"):
+                        st.session_state.db[i]['Status'] = "Completed"
+                        st.session_state.selected_invoice = st.session_state.db[i]
+                        st.rerun()
+                else:
+                    if st.button(f"인보이스 재출력", key=f"re_{i}"):
+                        st.session_state.selected_invoice = st.session_state.db[i]
+                        st.rerun()
 
-    # 리스트 하단에 인보이스 출력
-    if st.session_state.active_invoice:
-        st.markdown("---")
-        inv = st.session_state.active_invoice
-        if st.button("❌ 인보이스 닫기"):
-            st.session_state.active_invoice = None
-            st.rerun()
-            
-        inv_html = f"""
-        <div class="inv-container">
-            <div class="inv-paper">
-                <div style="display: flex; justify-content: space-between;">
-                    <div>
-                        <div style="line-height:1;">
-                            <span style="font-size:8px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
-                            <span style="font-size:38px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-2px;">skycad</span>
-                        </div>
-                        <div style="font-size:11px; margin-top:15px;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <h1 style="font-size:32px; font-weight:400; margin:0;">INVOICE</h1>
-                        <p style="font-size:12px; margin:8px 0;">No. {inv.get('Inv_No','')}<br>{inv.get('Date','')}</p>
-                        <div style="text-align:left; font-size:11px; margin-top:20px;">
-                            <b>Ship To:</b><br>{inv.get('Clinic','')}<br>{inv.get('Dr','')}<br>{inv.get('Address','')}<br>{inv.get('City','')}<br>{inv.get('Phone','')}
-                        </div>
-                    </div>
-                </div>
-                <div style="margin-top: 45px; padding: 12px 0; border-top: 1.8px solid black; border-bottom: 1.8px solid black; font-size: 14px;">
-                    <b>Patient:</b> {str(inv.get('Patient','')).upper()}
-                </div>
-                <div style="flex: 1; margin-top: 30px;">
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead><tr style="border-bottom: 1px solid black;"><th style="text-align:left; padding-bottom: 5px; text-decoration:underline;">Description</th><th style="text-align:right; padding-bottom: 5px; text-decoration:underline;">Amount</th></tr></thead>
-                        <tbody><tr><td style="padding:25px 0; font-size:14px;">Nightguard ({inv.get('Material','')}) {inv.get('Arch','')}</td><td style="text-align:right; font-size:14px; font-weight:bold;">$180.00</td></tr></tbody>
-                    </table>
-                </div>
-                <div style="border-top: 1.8px solid black; padding-top: 15px;">
-                    <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:bold;"><div>ET12</div><div>Total: $180.00</div></div>
-                    <div class="notice-box"><b>All dental products we offer are custom made in Canada.</b><br><br>Please ensure payment is made within 30 days. Thank you.</div>
-                </div>
-            </div>
+    if st.session_state.selected_invoice:
+        inv = st.session_state.selected_invoice
+        st.divider()
+        st.markdown(f"""
+        <div class="invoice-container">
+            <h2 style="text-align:center;">SKYCAD DENTAL LAB INVOICE</h2>
+            <hr>
+            <p><strong>Case No:</strong> {inv['Case No']} | <strong>Completed:</strong> {inv['Lab Done']}</p>
+            <p><strong>Clinic:</strong> {inv['Clinic']} | <strong>Doctor:</strong> {inv['Doctor']}</p>
+            <p><strong>Patient:</strong> {inv['Patient']}</p>
+            <p><strong>Item:</strong> Night Guard ({inv['Material']}) - {inv['Arch']}</p>
         </div>
-        """
-        st.markdown(inv_html, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        if st.button("🖨️ 인쇄하기"):
+            st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
+
+with tab3:
+    st.write("🔍 검색 기능")
