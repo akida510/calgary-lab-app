@@ -53,6 +53,7 @@ def get_business_day(start_date, days_to_subtract):
         if current_date.weekday() < 5: days_to_subtract -= 1
     return current_date
 
+# 제목 우측 제작자 정보 고정
 st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 13px; font-weight: 400;">Designed by Heechul Jung V1.0.2</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
@@ -109,6 +110,8 @@ with tab2:
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
+        
+        # 인쇄 시 중앙이 깨지지 않도록 min-height를 td와 div에 중첩 적용
         st.markdown(f"""
         <div class="invoice-container">
             <table style="width:100%; border:none;">
@@ -140,8 +143,9 @@ with tab2:
                 <tbody>
                     <tr>
                         <td style="padding:30px 5px; vertical-align:top; font-size:16px;">
-                            Nightguard ({inv['Material']}) - {inv['Arch']}<br>
-                            <div style="margin-top: 300px;">&nbsp;</div>
+                            <div style="min-height: 380px;">
+                                Nightguard ({inv['Material']}) - {inv['Arch']}
+                            </div>
                         </td>
                         <td style="padding:30px 5px; vertical-align:top; text-align:right; font-size:16px;">$180.00</td>
                     </tr>
