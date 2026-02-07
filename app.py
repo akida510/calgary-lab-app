@@ -30,6 +30,8 @@ st.markdown("""
         flex-direction: column; align-items: center;
     }
     .money-text { color: #4ade80; font-weight: 600; font-size: 0.95rem; }
+    
+    /* 인보이스 박스 디자인 */
     .invoice-overlay { background-color: rgba(0,0,0,0.95); padding: 30px; display: flex; justify-content: center; }
     .invoice-paper {
         background-color: #ffffff !important; width: 100%; max-width: 780px; 
@@ -46,20 +48,12 @@ if 'db' not in st.session_state: st.session_state.db = []
 if 'inv_counter' not in st.session_state: st.session_state.inv_counter = 162084
 if 'active_invoice' not in st.session_state: st.session_state.active_invoice = None
 
-# 병원-의사 참조 데이터
 ref_data = pd.DataFrame([
     {"Clinic": "My Smile Family Dental", "Dr": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Region": "Courier"},
     {"Clinic": "Calgary Central Dental", "Dr": "Dr. Lana Huynh", "Address": "205-7136 11 St NE, Calgary, AB", "Region": "Local"}
 ])
 all_clinics = sorted(ref_data["Clinic"].unique().tolist())
 all_doctors = sorted(ref_data["Dr"].unique().tolist())
-
-def get_business_day(start_date, days):
-    curr = start_date
-    while days > 0:
-        curr -= timedelta(days=1)
-        if curr.weekday() < 5: days -= 1
-    return curr
 
 # [3. 상단 타이틀 및 실적]
 st.markdown(f"""
@@ -79,13 +73,13 @@ st.markdown(f"""
     </div>
     """, unsafe_allow_html=True)
 
-# [4. 메인 기능 탭]
+# [4. 메인 탭 기능]
 tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트", "🔍 검색"])
 
 with tab1:
     st.markdown("### 📋 케이스 등록")
     
-    # 저장 후 필드 초기화를 위한 컨테이너
+    # st.form을 사용하여 저장 후 자동 지우기 구현
     with st.form("input_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
@@ -95,10 +89,8 @@ with tab1:
             # 의사명/병원명 연동 로직
             sel_dr = st.selectbox("Dr (의사명) 선택", ["선택 안 함"] + all_doctors)
             input_dr = st.text_input("Dr (의사명) 직접입력")
-            
             final_dr = input_dr if input_dr else (sel_dr if sel_dr != "선택 안 함" else "")
             
-            # 의사명 입력/선택 시 병원명 자동 매칭
             auto_clinic = ""
             if final_dr in ref_data["Dr"].values:
                 auto_clinic = ref_data[ref_data["Dr"] == final_dr]["Clinic"].iloc[0]
@@ -109,7 +101,7 @@ with tab1:
         with c2:
             model_type = st.radio("접수 형태", ["3D 디지털 스캔", "일반 모델"], index=0, horizontal=True)
             
-            # 일반 모델 선택 시에만 날짜 입력 활성화 (기본값 오늘)
+            # 일반 모델일 때만 날짜 선택 (기본 '-' 표시 로직 처리)
             model_date = "-"
             if model_type == "일반 모델":
                 model_date_input = st.date_input("접수 날짜", value=date.today())
@@ -119,21 +111,21 @@ with tab1:
             arc = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
             due = st.date_input("Due Date (요청일)", date.today() + timedelta(days=7))
 
-        # 저장 로직
         submit = st.form_submit_button("💾 모든 정보 저장")
+        
         if submit:
-            if case_no and (sel_cln != "선택 안 함"):
+            if case_no and sel_cln != "선택 안 함":
                 clinic_info = ref_data[ref_data["Clinic"] == sel_cln].iloc[0] if sel_cln in ref_data["Clinic"].values else {"Address": "", "Region": "Local"}
                 
                 st.session_state.db.append({
                     "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient,
-                    "Clinic": sel_cln, "Dr": final_dr, "Address": clinic_info["Address"],
+                    "Clinic": sel_cln, "Dr": final_dr, "Address": clinic_info.get("Address", ""),
                     "Material": mat, "Arch": arc, "Model": model_type, "ModelDate": model_date,
                     "Due": due.strftime('%Y-%m-%d'), "Date": date.today().strftime('%Y-%m-%d')
                 })
                 st.session_state.inv_counter += 1
-                st.success(f"Case {case_no} 저장 완료!")
-                st.rerun()
+                st.success(f"저장 완료! Case {case_no}")
+                st.rerun() # 저장 후 상태 갱신 및 커서 이동(초기화) 효과
 
 with tab2:
     for i, row in enumerate(st.session_state.db):
@@ -146,13 +138,19 @@ with tab3:
     sq = st.text_input("검색 (환자, 병원, 의사명)")
     if sq:
         res = [r for r in st.session_state.db if sq.lower() in str(r).lower()]
-        for r in res: st.write(f"✅ {r['Case No']} | {r['Patient']} | {r['Dr']} | {r.get('Due', '')}")
+        for r in res: st.write(f"✅ {r['Case No']} | {r['Patient']} | {r.get('Dr', 'N/A')} | {r.get('Due', '')}")
 
-# [5. 인보이스 미리보기 영역]
+# [5. 인보이스 미리보기]
 if st.session_state.active_invoice:
     st.markdown('---')
     if st.button("❌ 닫기"): st.session_state.active_invoice = None; st.rerun()
     inv = st.session_state.active_invoice
+    
+    # KeyError 방지를 위한 .get() 사용
+    inv_dr = inv.get('Dr', 'N/A')
+    inv_cln = inv.get('Clinic', 'N/A')
+    inv_addr = inv.get('Address', '')
+    
     st.markdown(f"""
     <div class="invoice-overlay">
         <div class="invoice-paper">
@@ -167,7 +165,7 @@ if st.session_state.active_invoice:
                         <h1 style="font-size:30px; font-weight:400; margin:0;">INVOICE</h1>
                         <p style="margin:5px 0; font-size:12px;">No. {inv['Inv_No']} | {inv.get('Date', '')}</p>
                         <div style="text-align:left; font-size:11px; border-top:1px solid #000; padding-top:5px; margin-top:10px;">
-                            <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Dr']}<br>{inv.get('Address', '')}
+                            <b>Ship To:</b><br>{inv_cln}<br>{inv_dr}<br>{inv_addr}
                         </div>
                     </div>
                 </div>
