@@ -3,17 +3,19 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import streamlit.components.v1 as components
 
-# [페이지 설정]
+# [페이지 설정] 디자인은 희철님 원본 스타일 유지
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
+    /* 전체 배경 및 입력창 (희철님 원본 스타일) */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
     }
-    label p, .stMarkdown p, .stTabs [data-baseweb="tab"] p { 
+    input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
+    label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
         color: #ffffff !important; font-weight: 600 !important; 
     }
     .header-container {
@@ -21,20 +23,28 @@ st.markdown("""
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    /* 버튼: 아주 얇고 세련된 디자인 (폰트 10px) */
-    .stButton>button { 
-        height: 1.8rem !important;
+
+    /* Tab 1 저장 버튼 (원본: 크게) */
+    .big-save-btn button {
+        width: 100%; height: 3.5em !important; background-color: #4c6ef5 !important; 
+        color: white !important; font-weight: bold; border-radius: 5px;
+    }
+
+    /* Tab 2 완료/취소 버튼 (수정: 아주 슬림하고 세련되게) */
+    .slim-action-btn button {
+        height: 25px !important;
+        min-height: 25px !important;
         font-size: 10px !important;
-        padding: 0 10px !important;
+        padding: 0 5px !important;
         background-color: #2b3a67 !important;
         color: #dbe4ff !important;
         border: 1px solid #4c6ef5 !important;
-        border-radius: 4px !important;
+        line-height: 1 !important;
     }
-    .stButton>button:hover { background-color: #4c6ef5 !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
+# 데이터 로직 (원본 유지)
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -54,12 +64,13 @@ st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-we
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
+# --- Tab 1: 케이스 등록 (희철님 원본 그대로 복구) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
     with c1:
         case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
-        patient = st.text_input("Patient(환자명)")
+        patient = st.text_input("Patient(환자명)", placeholder="환자 성함")
         clinics = sorted(list(set(ref_data['Clinic'].tolist())))
         sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
         filtered_docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
@@ -67,52 +78,63 @@ with tab1:
     with c2:
         is_3d = st.checkbox("3D Model", value=True)
         today = date.today()
-        rec_date = today if is_3d else st.date_input("접수일", today)
+        if is_3d:
+            st.text_input("접수일", value=today.strftime("%Y-%m-%d"), disabled=True)
+            rec_date = today
+        else:
+            rec_date = st.date_input("접수일", today)
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
 
     st.markdown("### 📅 일정 관리")
     col3, col4, col5 = st.columns(3)
-    with col5: due_date = st.date_input("Due Date", today + timedelta(days=7))
-    with col3: lab_done_date = st.date_input("Lab Done", today + timedelta(days=1))
+    with col5: due_date = st.date_input("요청일 (Due Date)", today + timedelta(days=7))
+    with col3: lab_done_date = st.date_input("완료일 (Lab Done)", today + timedelta(days=1))
     with col4:
         ship_date = get_business_day(due_date, 1 if (sel_clinic != "선택" and ref_data[ref_data['Clinic']==sel_clinic]['Region'].iloc[0]=="Local") else 2)
-        st.date_input("Shipping Date", ship_date)
+        st.date_input("출고일 (Shipping Date)", ship_date)
 
-    if st.button("💾 케이스 저장"):
-        if sel_clinic != "선택" and case_no:
+    st.markdown('<div class="big-save-btn">', unsafe_allow_html=True)
+    if st.button("💾 케이스 저장 (접수 완료)"):
+        if sel_clinic == "선택" or not case_no: st.error("Case No와 Clinic은 필수 입력 사항입니다.")
+        else:
             c_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
                 "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
                 "Doctor": sel_doctor, "Material": material, "Arch": arch,
-                "Lab Done": lab_done_date, "Status": "Pending", 
-                "Addr": c_info['Addr'], "City": c_info['City']
+                "Lab Done": lab_done_date, "Status": "Pending", "Addr": c_info['Addr'], "City": c_info['City']
             })
-            st.success("등록 완료!")
+            st.success(f"{case_no}번 케이스 등록 완료!")
+    st.markdown('</div>', unsafe_allow_html=True)
 
+# --- Tab 2: 리스트 및 세련된 인보이스 ---
 with tab2:
-    for i, row in enumerate(st.session_state.db):
-        c_info, c_btn1, c_btn2 = st.columns([4, 1, 1])
-        with c_info: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
-        with c_btn1:
-            if st.button("완료/출력", key=f"inv_{i}"):
-                st.session_state.db[i]['Status'] = "Completed"
-                st.session_state.selected_invoice = st.session_state.db[i]
-                st.rerun()
-        with c_btn2:
-            if row['Status'] == "Completed":
-                if st.button("취소", key=f"un_{i}"):
-                    st.session_state.db[i]['Status'] = "Pending"
-                    st.session_state.selected_invoice = None
+    if not st.session_state.db: st.info("대기 중인 케이스가 없습니다.")
+    else:
+        for i, row in enumerate(st.session_state.db):
+            c_info, c_btn1, c_btn2 = st.columns([4, 1, 1])
+            with c_info: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
+            with c_btn1:
+                st.markdown('<div class="slim-action-btn">', unsafe_allow_html=True)
+                if st.button("완료/출력", key=f"inv_{i}"):
+                    st.session_state.db[i]['Status'] = "Completed"
+                    st.session_state.selected_invoice = st.session_state.db[i]
                     st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+            with c_btn2:
+                if row['Status'] == "Completed":
+                    st.markdown('<div class="slim-action-btn">', unsafe_allow_html=True)
+                    if st.button("취소", key=f"un_{i}"):
+                        st.session_state.db[i]['Status'] = "Pending"
+                        st.session_state.selected_invoice = None
+                        st.rerun()
+                    st.markdown('</div>', unsafe_allow_html=True)
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        
-        # [수정] 사진에 있는 긴 문구 전체 복원 및 레이아웃 수정
         invoice_html = f"""
-        <div style="background:white; color:black; padding:40px; font-family:Arial, sans-serif; height:1050px; position:relative; box-sizing:border-box;">
+        <div style="background:white; color:black; padding:40px; font-family:Arial, sans-serif; height:1150px; position:relative; box-sizing:border-box;">
             <table style="width:100%; border:none;">
                 <tr>
                     <td style="width:60%;">
@@ -129,36 +151,29 @@ with tab2:
                     </td>
                 </tr>
             </table>
-
             <div style="margin: 50px 0 20px 0; font-size:22px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
-
             <table style="width:100%; border-top:2.5px solid black; border-bottom:2.5px solid black; border-collapse:collapse;">
                 <tr style="border-bottom:1.2px solid black; font-weight:bold; font-size:18px;">
                     <td style="padding:12px 5px;">Description</td>
                     <td style="padding:12px 5px; text-align:right;">Amount</td>
                 </tr>
                 <tr>
-                    <td style="padding:30px 5px; height:450px; vertical-align:top; font-size:18px;">
-                        Nightguard ({inv['Material']}) - {inv['Arch']}
-                    </td>
+                    <td style="padding:30px 5px; height:450px; vertical-align:top; font-size:18px;">Nightguard ({inv['Material']}) - {inv['Arch']}</td>
                     <td style="padding:30px 5px; text-align:right; vertical-align:top; font-size:18px;">$180.00</td>
                 </tr>
             </table>
-
             <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:20px; margin:25px 0 60px 0;">
                 <span>{inv['Case No']}</span><span>Total: $180.00</span>
             </div>
-
             <div style="text-align:center;">
                 <div style="font-size:19px; font-weight:bold; text-decoration:underline; margin-bottom:20px;">All dental products we offer are custom made in Canada.</div>
                 <p style="font-size:12px; line-height:1.8; padding:0 40px; color:#333;">Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.</p>
             </div>
-            
-            <div style="margin-top:80px; border-top:1.5px solid black; width:240px; padding-top:10px; font-size:14px; text-align:left;">Authorized Signature</div>
+            <div style="margin-top:80px; border-top:1.5px solid black; width:240px; padding-top:10px; font-size:14px;">Authorized Signature</div>
         </div>
         """
-        components.html(invoice_html, height=1100, scrolling=False)
-        if st.button("🖨️ 인쇄 (Print)"):
+        components.html(invoice_html, height=1250)
+        if st.button("🖨️ 인쇄하기 (Print)"):
             st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
 
-with tab3: st.write("Search...")
+with tab3: st.write("검색...")
