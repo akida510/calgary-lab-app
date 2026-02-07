@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [수정 금지] 희철님 원본 디자인 및 테마 강제 고정
+# [디자인 설정] 희철님 원본 테마 및 레이아웃 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
@@ -10,7 +10,7 @@ st.markdown("""
     /* 전체 배경 및 글자색 강제 고정 */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     
-    /* 모든 텍스트 및 라벨 백색 고정 */
+    /* 텍스트 가독성 확보 */
     label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
         color: #ffffff !important; font-weight: 600 !important; 
     }
@@ -29,36 +29,31 @@ st.markdown("""
         margin-bottom: 25px; border: 1px solid #30363d;
     }
     
-    /* Tab 1 저장 버튼 (원본 크기 유지) */
+    /* 등록 버튼 (원본 유지) */
     .stButton>button { 
         width: 100%; height: 3.5em; background-color: #4c6ef5 !important; 
         color: white !important; font-weight: bold; border-radius: 5px; 
     }
 
-    /* Tab 2 완료 버튼 (슬림하게 수정) */
+    /* 리스트 내 완료 버튼 (슬림 스타일) */
     div[data-testid="column"] .stButton>button {
-        height: 24px !important;
-        line-height: 24px !important;
-        font-size: 10px !important;
-        padding: 0px 10px !important;
-        background-color: #2b3a67 !important;
-        border: 1px solid #4c6ef5 !important;
-        margin-top: 5px;
-        min-height: 24px !important;
+        height: 24px !important; line-height: 24px !important;
+        font-size: 10px !important; padding: 0px 8px !important;
+        background-color: #2b3a67 !important; border: 1px solid #4c6ef5 !important;
+        margin-top: 4px; min-height: 24px !important; width: auto !important;
     }
 
-    /* [인보이스 전용 스타일] 사진과 동일한 비율 구성 */
+    /* [인보이스 전용] 사진 레이아웃 그대로 복사 */
     .invoice-card {
-        background-color: white !important; padding: 30px; 
-        border: 1.5px solid black !important; /* 사진 속 큰 테두리 */
-        font-family: Arial, sans-serif;
-        min-height: 950px; position: relative;
+        background-color: white !important; padding: 40px; 
+        border: 1.5px solid black !important; /* 사진 속 큰 테두리 박스 */
+        font-family: Arial, sans-serif; min-height: 980px;
     }
-    .invoice-card * { color: black !important; }
+    .invoice-card * { color: black !important; border-color: black !important; }
 
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-card { display: block !important; border: 1.5px solid black !important; padding: 30px !important; }
+        .invoice-card { display: block !important; border: 1.5px solid black !important; padding: 40px !important; margin: 0 !important; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -68,7 +63,7 @@ if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice
 
 ref_data = pd.DataFrame([
     {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local", "Addr": "205-7136 11 St NE", "City": "Calgary, AB T2E 4Y9", "Phone": "(403) 970-0600"},
-    {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier", "Addr": "13510 127 St NW", "City": "Edmonton, Alberta T5L 1B9", "Phone": "(780) 455-6806"},
+    {"Clinic": "Edmonton North", "Doctor": "Arshpreet Kaur", "Region": "Courier", "Addr": "13510 127 St NW", "City": "Edmonton, Alberta T5L 1B9", "Phone": "(780) 455-6806"},
 ])
 
 def get_business_day(start_date, days_to_subtract):
@@ -78,11 +73,12 @@ def get_business_day(start_date, days_to_subtract):
         if current_date.weekday() < 5: days_to_subtract -= 1
     return current_date
 
+# 상단 문구 절대 고정
 st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800; color:white !important;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px; color:white !important;">Designed by Heechul Jung</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
-# --- Tab 1: 등록창 (희철님 원본 그대로) ---
+# --- Tab 1: 케이스 등록 (희철님 원본 코드 유지) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
@@ -124,9 +120,9 @@ with tab1:
             })
             st.success("등록 완료!")
 
-# --- Tab 2: 인보이스 출력 ---
+# --- Tab 2: 리스트 및 세련된 인보이스 ---
 with tab2:
-    if not st.session_state.db: st.info("작업 리스트가 비어있습니다.")
+    if not st.session_state.db: st.info("데이터가 없습니다.")
     else:
         for i, row in enumerate(st.session_state.db):
             c_info, c_btn = st.columns([5, 1])
@@ -140,55 +136,55 @@ with tab2:
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        # [사진 복사] 실제 인보이스 레이아웃
+        # [사진 복사] 실제 인보이스 레이아웃 (서명란 삭제, 테두리 추가)
         st.markdown(f"""
         <div class="invoice-card">
             <div style="display: flex; justify-content: space-between;">
-                <div style="width: 50%;">
+                <div style="width: 55%;">
                     <div style="font-size: 11px; font-weight: bold; color: #1a4e8a !important; font-style: italic;">DENTAL TECHNOLOGY Ltd</div>
-                    <div style="font-size: 60px; font-weight: 900; font-style: italic; color: #1a4e8a !important; line-height: 0.8; letter-spacing: -3px;">skycad</div>
-                    <div style="margin-top: 15px; font-size: 12px; line-height: 1.2;">
+                    <div style="font-size: 65px; font-weight: 900; font-style: italic; color: #1a4e8a !important; line-height: 0.8; letter-spacing: -3px;">skycad</div>
+                    <div style="margin-top: 18px; font-size: 13px; line-height: 1.2;">
                         <b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600
                     </div>
                 </div>
-                <div style="text-align: right; width: 40%;">
+                <div style="text-align: right; width: 45%;">
                     <div style="font-size: 28px; font-weight: bold; letter-spacing: 2px;">INVOICE</div>
-                    <div style="font-size: 13px; margin-top: 5px;">No. 162{inv['Case No'].replace('ET', '')}<br>{inv['Lab Done'].strftime('%-m/%-d/%Y')}</div>
-                    <div style="margin-top: 20px; text-align: left; font-size: 13px; line-height: 1.3;">
+                    <div style="font-size: 14px; margin-top: 5px;">No. 162{inv['Case No'].replace('ET', '')}<br>{inv['Lab Done'].strftime('%-m/%-d/%Y')}</div>
+                    <div style="margin-top: 25px; text-align: left; font-size: 13px; line-height: 1.3; margin-left: auto; width: 230px;">
                         <b>Ship To:</b><br>{inv['Clinic']}<br>Dr. {inv['Doctor']}<br>{inv['Addr']}<br>{inv['City']}<br>{inv['Phone']}
                     </div>
                 </div>
             </div>
 
-            <div style="margin-top: 40px; font-size: 15px; border-bottom: 1.5px solid black; padding-bottom: 10px;">
+            <div style="margin: 50px 0 15px 0; font-size: 16px; border-bottom: 1.5px solid black; padding-bottom: 10px;">
                 <b>Patient:</b> {str(inv['Patient']).upper()}
             </div>
 
-            <div style="margin-top: 15px;">
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+            <div style="margin-top: 10px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
                     <tr style="border-bottom: 1px solid black; font-weight: bold;">
                         <td style="padding: 10px 0; text-decoration: underline;">Description</td>
                         <td style="padding: 10px 0; text-align: right; text-decoration: underline;">Amount</td>
                     </tr>
                     <tr>
-                        <td style="padding: 15px 0; height: 350px; vertical-align: top;">
+                        <td style="padding: 20px 0; height: 420px; vertical-align: top;">
                             Nightguard ({inv['Material']}) {inv['Arch'].upper()}
                         </td>
-                        <td style="padding: 15px 0; text-align: right; vertical-align: top;">$180.00</td>
+                        <td style="padding: 20px 0; text-align: right; vertical-align: top;">$180.00</td>
                     </tr>
                 </table>
             </div>
 
-            <div style="border-top: 1.5px solid black; padding-top: 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 15px;">
+            <div style="border-top: 2px solid black; padding-top: 15px; display: flex; justify-content: space-between; font-weight: bold; font-size: 16px;">
                 <span>{inv['Case No']}</span>
                 <span>Total: $180.00</span>
             </div>
 
-            <div style="position: absolute; bottom: 40px; left: 30px; right: 30px; text-align: center;">
-                <div style="font-size: 16px; font-weight: bold; text-decoration: underline; margin-bottom: 15px;">
+            <div style="margin-top: 100px; text-align: center;">
+                <div style="font-size: 17px; font-weight: bold; text-decoration: underline; margin-bottom: 18px;">
                     All dental products we offer are custom made in Canada.
                 </div>
-                <div style="font-size: 11px; line-height: 1.6; padding: 0 20px; font-weight: 500;">
+                <div style="font-size: 11.5px; line-height: 1.7; padding: 0 30px; font-weight: 500;">
                     Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.
                 </div>
             </div>
