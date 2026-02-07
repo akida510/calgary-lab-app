@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
-import google.generativeai as genai
-from PIL import Image
 
 # [수정 금지] 디자인 강제 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
@@ -26,7 +24,6 @@ st.markdown("""
         width: 100%; height: 3.5em; background-color: #4c6ef5 !important;
         color: white !important; font-weight: bold; border-radius: 5px; border: none;
     }
-    /* 인보이스 박스 스타일 */
     .invoice-box {
         background-color: white; color: black; padding: 40px;
         border: 1px solid #ddd; border-radius: 5px; font-family: 'Courier New', Courier, monospace;
@@ -78,8 +75,16 @@ with tab1:
         sel_doctor = st.selectbox("Doctor (의사명)", ["선택"] + doctors)
         
     with c2:
-        is_3d = st.checkbox("3D 모델 수신")
-        model_date = "-" if is_3d else st.date_input("모델 수신일", date.today())
+        # 3D 모델 수신을 기본값(value=True)으로 설정
+        is_3d = st.checkbox("3D 모델 수신 (3D 모델인 경우 체크)", value=True)
+        
+        if is_3d:
+            st.text_input("접수일", "-", disabled=True)
+            model_date_val = "-"
+        else:
+            # 체크 해제 시 석고 모델로 간주, 오늘 날짜 입력
+            model_date_val = st.date_input("접수일", date.today())
+        
         material = st.radio("Material (재질)", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch (위치)", ["Max", "Mand", "Both"], horizontal=True)
         
@@ -97,15 +102,13 @@ with tab1:
 
     st.divider()
 
-    # 저장 및 인보이스 미리보기 로직
     if st.button("🚀 작업 완료 및 인보이스 생성"):
         if not case_no or sel_clinic == "선택":
             st.error("Case #와 Clinic은 필수 입력 사항입니다.")
         else:
-            st.success("데이터가 저장되었습니다. 인보이스를 확인해 주세요.")
+            st.success(f"{case_no} 데이터 저장 완료 및 인보이스를 생성합니다.")
             
-            # 인보이스 미리보기 영역
-            st.markdown("### 📑 Invoice Preview")
+            # 인보이스 미리보기
             invoice_html = f"""
             <div class="invoice-box">
                 <h2 style="text-align: center;">INVOICE</h2>
@@ -121,17 +124,7 @@ with tab1:
                 </table>
                 <hr>
                 <p style="text-align: right;"><strong>Total: $ ---.--</strong></p>
-                <p style="font-size: 10px; color: gray;">Completed Date: {lab_done}</p>
+                <p style="font-size: 10px; color: gray;">Completed Date: {lab_done} | Received: {model_date_val}</p>
             </div>
             """
             st.markdown(invoice_html, unsafe_allow_html=True)
-            
-            # 실제 출력 버튼 (PDF 등 연동 예정)
-            if st.button("🖨️ 인보이스 인쇄하기 (Print)"):
-                st.info("프린터 연결 기능을 실행합니다...")
-
-with tab2:
-    st.write("📊 정산 현황 및 색상 표시 리스트 준비 중")
-
-with tab3:
-    st.write("🔍 검색 화면 준비 중")
