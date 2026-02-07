@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, date
 # [1. 기본 설정]
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
-# [2. 스타일 시트 - 다크모드 차단 및 글자색 강제 고정]
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117 !important; }
@@ -16,7 +15,6 @@ st.markdown("""
         aspect-ratio: 8.5 / 11; padding: 50px; border: 1px solid #000;
         box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; flex-direction: column; box-sizing: border-box;
     }
-    /* 코드 노출 방지를 위한 강력한 스타일 적용 */
     .invoice-paper * {
         color: #000000 !important; 
         -webkit-text-fill-color: #000000 !important;
@@ -26,13 +24,13 @@ st.markdown("""
     .patient-line { margin: 25px 0; padding: 15px 0; border-top: 2.5px solid black; border-bottom: 2.5px solid black; font-size: 20px; font-weight: bold; }
     .item-table { width: 100%; border-collapse: collapse; flex-grow: 1; }
     .item-table th { border-bottom: 1.5px solid black; padding: 10px 0; text-align: left; }
-    .item-table td { padding: 25px 0; font-size: 17px; border-bottom: 1px solid #eee; }
+    .item-table td { padding: 25px 0; font-size: 17px; }
     .bottom-box { margin-top: auto; }
     .notice-box { border: 1.5px solid black; padding: 15px; text-align: center; margin-top: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# [3. 데이터 초기화]
+# [2. 데이터 초기화 및 로직]
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -48,19 +46,19 @@ def get_business_day(start_date, days):
         if curr.weekday() < 5: days -= 1
     return curr
 
-# [4. UI 화면]
+# [3. UI 화면]
 tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트", "🔍 검색"])
 
 with tab1:
-    st.markdown("### 📋 케이스 등록")
+    st.markdown("### 📋 케이스 등록 (기본정보)")
     c1, c2 = st.columns(2)
     with c1:
-        case_no = st.text_input("Case No", placeholder="ET177")
-        patient = st.text_input("Patient")
+        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET177")
+        patient = st.text_input("Patient(환자명)")
         
+        # 병원/의사 드롭다운 연동
         cln_list = ["선택"] + sorted(ref_data["Clinic"].tolist())
         doc_list = ["선택"] + sorted(ref_data["Doctor"].tolist())
-
         def sync_c():
             if st.session_state.ck != "선택":
                 st.session_state.dk = ref_data[ref_data["Clinic"] == st.session_state.ck]["Doctor"].iloc[0]
@@ -68,41 +66,61 @@ with tab1:
             if st.session_state.dk != "선택":
                 st.session_state.ck = ref_data[ref_data["Doctor"] == st.session_state.dk]["Clinic"].iloc[0]
 
-        st.selectbox("Clinic", cln_list, key="ck", on_change=sync_c)
-        st.selectbox("Doctor", doc_list, key="dk", on_change=sync_d)
+        sel_clinic = st.selectbox("Clinic(병원명)", cln_list, key="ck", on_change=sync_c)
+        sel_doctor = st.selectbox("Doctor(의사명)", doc_list, key="dk", on_change=sync_d)
 
     with c2:
-        st.checkbox("3D Model", value=True)
-        st.date_input("접수일", date.today())
+        is_3d = st.checkbox("3D Model", value=True)
+        rec_date = st.date_input("접수일(Received Date)", date.today())
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
 
-    if st.button("💾 저장"):
-        if st.session_state.ck != "선택" and case_no:
+    st.markdown("### 📅 일정 관리 (기본설정)")
+    col3, col4, col5 = st.columns(3)
+    
+    # 병원 지역 정보 가져오기
+    clinic_reg = "Courier"
+    if st.session_state.ck != "선택":
+        clinic_reg = ref_data[ref_data["Clinic"] == st.session_state.ck]["Region"].iloc[0]
+
+    with col5: 
+        due_date = st.date_input("요청일 (Due Date)", date.today() + timedelta(days=7))
+    with col3: 
+        lab_done_date = st.date_input("완료일 (Lab Done)", date.today() + timedelta(days=1))
+    with col4:
+        # 지역별 출고일 계산 복구
+        ship_days = 1 if clinic_reg == "Local" else 2
+        ship_date = get_business_day(due_date, ship_days)
+        st.date_input("출고일 (Shipping Date)", ship_date)
+
+    if st.button("💾 케이스 저장 및 등록"):
+        if st.session_state.ck == "선택" or not case_no:
+            st.error("필수 정보를 입력해주세요.")
+        else:
             info = ref_data[ref_data["Clinic"] == st.session_state.ck].iloc[0]
             st.session_state.db.append({
                 "Case No": case_no, "Patient": patient, "Clinic": st.session_state.ck,
                 "Doctor": st.session_state.dk, "Address": info["Address"], "Phone": info["Phone"],
-                "Material": material, "Arch": arch, "Status": "진행중"
+                "Material": material, "Arch": arch, "Status": "진행중",
+                "Lab Done": lab_done_date, "Due Date": due_date
             })
-            st.success("등록 완료!")
+            st.success("성공적으로 등록되었습니다.")
 
 with tab2:
+    st.subheader("📊 작업 상황 리스트")
     for i, row in enumerate(st.session_state.db):
         cols = st.columns([3, 1, 1])
-        cols[0].write(f"{'🟡' if row['Status']=='진행중' else '🟢'} {row['Case No']} | {row['Patient']}")
-        if cols[1].button("완료/복구", key=f"s_{i}"):
-            st.session_state.db[i]['Status'] = "완료" if row['Status']=='진행중' else '진행중'
+        status_icon = "🟡" if row['Status'] == "진행중" else "🟢"
+        cols[0].write(f"{status_icon} **{row['Case No']}** | {row['Patient']} ({row['Clinic']})")
+        if cols[1].button("완료/되돌리기", key=f"s_{i}"):
+            st.session_state.db[i]['Status'] = "완료" if row['Status'] == "진행중" else "진행중"
             st.rerun()
-        if cols[2].button("인보이스", key=f"i_{i}"):
+        if cols[2].button("인보이스 보기", key=f"i_{i}"):
             st.session_state.selected_invoice = row
 
-    # [5. 인보이스 출력 핵심] 코드가 보이지 않도록 강력하게 렌더링
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.markdown('<div class="invoice-wrapper">', unsafe_allow_html=True)
-        
-        # 모든 HTML을 하나의 변수에 담아 완벽하게 닫아줍니다.
         invoice_content = f"""
 <div class="invoice-paper">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 40px;">
@@ -123,10 +141,7 @@ with tab2:
     <div class="patient-line">Patient: &nbsp; {inv['Patient'].upper()}</div>
     <table class="item-table">
         <thead>
-            <tr>
-                <th style="text-align:left;">Description</th>
-                <th style="text-align:right;">Amount</th>
-            </tr>
+            <tr><th style="text-align:left;">Description</th><th style="text-align:right;">Amount</th></tr>
         </thead>
         <tbody>
             <tr>
