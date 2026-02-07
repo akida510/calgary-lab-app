@@ -18,23 +18,25 @@ st.markdown("""
     }
     input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
 
-    /* [추가] 버튼 가독성 수정 (모바일 대응) */
+    /* 버튼 가독성 수정 */
     .stButton > button {
         background-color: #1a1c24 !important;
         color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
-        width: 100%; /* 모바일에서 누르기 편하게 넓게 설정 */
-    }
-    .stButton > button:hover {
-        border-color: #1a4e8a !important;
-        color: #1a4e8a !important;
+        width: 100%;
     }
 
-    /* 인보이스 종이 디자인 (원본 유지) */
+    /* [수정] 인보이스 모바일 최적화 대응 */
     .invoice-paper {
         background-color: white !important; 
-        padding: 50px; border: 1px solid #000; font-family: 'Arial', sans-serif;
-        width: 100%; max-width: 800px; margin: 20px auto; line-height: 1.2;
+        padding: 5% !important; /* 고정값 대신 % 사용 */
+        border: 1px solid #000; 
+        font-family: 'Arial', sans-serif;
+        width: 95% !important; /* 화면 폭에 맞춤 */
+        max-width: 800px; 
+        margin: 10px auto; 
+        line-height: 1.2;
+        box-sizing: border-box;
     }
     
     .invoice-paper, .invoice-paper div, .invoice-paper p, .invoice-paper span, 
@@ -43,36 +45,51 @@ st.markdown("""
         color: #000000 !important; 
     }
     
-    .inv-header { display: flex; justify-content: space-between; margin-bottom: 40px; }
-    .logo-main { font-size: 50px; font-weight: 900; font-style: italic; color: #1a4e8a !important; letter-spacing: -2px; }
-    .info-right { text-align: right; }
-    .info-right h1 { font-size: 35px; margin-bottom: 5px; font-weight: 500; }
+    /* [수정] 헤더 영역 모바일에서 줄바꿈 대응 */
+    .inv-header { 
+        display: flex; 
+        justify-content: space-between; 
+        margin-bottom: 20px;
+        flex-wrap: wrap; /* 폭이 좁으면 아래로 내려가도록 */
+    }
+    .inv-header > div { min-width: 200px; margin-bottom: 10px; }
     
+    .logo-main { font-size: 40px; font-weight: 900; font-style: italic; color: #1a4e8a !important; letter-spacing: -2px; }
+    .info-right { text-align: right; }
+    
+    /* [수정] 반응형 텍스트 크기 */
+    @media (max-width: 600px) {
+        .logo-main { font-size: 30px; }
+        .info-right { text-align: left; } /* 폰에서는 왼쪽 정렬이 보기 편함 */
+        .patient-line { font-size: 16px; }
+        .item-table td { font-size: 14px; }
+    }
+
     .patient-line { 
-        margin-top: 20px; padding: 15px 0;
+        margin-top: 20px; padding: 10px 0;
         border-top: 2px solid black; border-bottom: 2px solid black;
         font-size: 18px; font-weight: bold;
     }
     
-    .item-table { width: 100%; border-collapse: collapse; margin-top: 10px; min-height: 200px; }
+    .item-table { width: 100%; border-collapse: collapse; margin-top: 10px; min-height: 150px; }
     .item-table th { border-bottom: 1px solid black; padding: 10px 0; text-align: left; }
-    .item-table td { padding: 20px 0; font-size: 16px; }
+    .item-table td { padding: 15px 0; }
 
-    .bottom-section { margin-top: 50px; }
-    .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-bottom: 30px; }
+    .bottom-section { margin-top: 30px; }
+    .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-bottom: 20px; }
     
-    .notice-box { border: 1.5px solid black; padding: 20px; text-align: center; background-color: #ffffff !important; }
-    .notice-box u { font-weight: bold; font-size: 16px; display: block; margin-bottom: 10px; text-decoration: underline !important; }
-    .notice-box p { font-size: 12px; line-height: 1.4; font-weight: 500; }
+    .notice-box { border: 1.5px solid black; padding: 15px; text-align: center; background-color: #ffffff !important; }
+    .notice-box u { font-weight: bold; font-size: 14px; display: block; margin-bottom: 5px; text-decoration: underline !important; }
+    .notice-box p { font-size: 11px; line-height: 1.4; font-weight: 500; }
 
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-paper { border: none !important; width: 100% !important; margin: 0 !important; }
+        .invoice-paper { border: none !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# 이하 로직 및 탭 구성은 원본 코드와 100% 동일합니다.
+# 이하 로직은 기본 코드와 동일합니다.
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -152,13 +169,13 @@ with tab2:
                 <div>
                     <p style="font-size:9px; font-weight:bold;">DENTAL TECHNOLOGY LTD</p>
                     <h1 class="logo-main">skycad</h1>
-                    <p style="font-size:13px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
+                    <p style="font-size:12px;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
                 </div>
                 <div class="info-right">
-                    <h1>INVOICE</h1>
+                    <h1 style="font-size: 28px;">INVOICE</h1>
                     <p>No. 162084</p>
                     <p>{date.today().strftime('%-m/%-d/%Y')}</p>
-                    <div class="ship-to" style="margin-top:20px;">
+                    <div class="ship-to" style="margin-top:15px; font-size:13px;">
                         <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Address']}<br>{inv['Phone']}
                     </div>
                 </div>
@@ -166,7 +183,7 @@ with tab2:
             <div class="patient-line">Patient: &nbsp; {inv['Patient'].upper()}</div>
             <table class="item-table">
                 <thead><tr><th style="text-align:left;">Description</th><th style="text-align:right;">Amount</th></tr></thead>
-                <tbody><tr><td style="padding:20px 0;">Nightguard ({inv['Material']}) {inv['Arch']}</td><td style="text-align:right;">$180.00</td></tr></tbody>
+                <tbody><tr><td style="padding:15px 0;">Nightguard ({inv['Material']}) {inv['Arch']}</td><td style="text-align:right;">$180.00</td></tr></tbody>
             </table>
             <div class="bottom-section">
                 <div class="total-line"><div>{inv['Case No']}</div><div>Total: $180.00</div></div>
