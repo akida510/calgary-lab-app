@@ -33,7 +33,7 @@ st.markdown("""
     .invoice-container * { color: black !important; line-height: 1.2; }
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-container { display: block !important; border: none !important; padding: 0 !important; }
+        .invoice-container { display: block !important; border: none !important; padding: 0 !important; margin: 0 !important; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -139,8 +139,9 @@ with tab2:
                 </thead>
                 <tbody>
                     <tr>
-                        <td style="padding:30px 5px 350px 5px; vertical-align:top; font-size:16px;">
-                            Nightguard ({inv['Material']}) - {inv['Arch']}
+                        <td style="padding:30px 5px; vertical-align:top; font-size:16px;">
+                            Nightguard ({inv['Material']}) - {inv['Arch']}<br>
+                            <div style="margin-top: 300px;">&nbsp;</div>
                         </td>
                         <td style="padding:30px 5px; vertical-align:top; text-align:right; font-size:16px;">$180.00</td>
                     </tr>
