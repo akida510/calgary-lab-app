@@ -20,7 +20,7 @@ st.markdown("""
         border: 1px solid #4a4a4a !important; width: 100%; font-weight: bold;
     }
 
-    /* [핵심] Letter 용지 비율 적용 (8.5 x 11 inch) */
+    /* Letter 용지 비율 적용 (8.5 x 11 inch) */
     .invoice-container {
         width: 100%;
         display: flex;
@@ -31,10 +31,10 @@ st.markdown("""
 
     .invoice-paper {
         background-color: #ffffff !important; 
-        width: 816px;       /* 8.5 inch (96dpi 기준) */
-        height: 1056px;     /* 11 inch (96dpi 기준) */
+        width: 816px;       
+        height: 1056px;     
         min-width: 816px;
-        padding: 60px 70px; /* 실제 출력 여백 느낌 */
+        padding: 60px 70px; 
         border: 1px solid #ddd; 
         font-family: 'Arial', sans-serif;
         box-shadow: 0 10px 30px rgba(0,0,0,0.5);
@@ -49,9 +49,9 @@ st.markdown("""
     @media (max-width: 850px) {
         .invoice-container { justify-content: flex-start; padding-left: 10px; }
         .invoice-paper {
-            transform: scale(0.42); /* 폰 폭에 맞게 비율 조정 */
+            transform: scale(0.42); 
             transform-origin: top left;
-            margin-bottom: -600px; /* 세로가 길어지므로 여백 보정 */
+            margin-bottom: -600px; 
         }
     }
     
@@ -71,7 +71,7 @@ st.markdown("""
     .item-table th { border-bottom: 1px solid black; padding: 12px 0; text-align: left; font-size: 16px; }
     .item-table td { padding: 25px 0; font-size: 17px; }
 
-    /* 하단 안내문구 위치 고정 (실제 인보이스 느낌) */
+    /* 하단 안내문구 위치 고정 */
     .invoice-footer {
         position: absolute;
         bottom: 60px;
@@ -96,7 +96,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# [데이터 로직 - 원본 유지]
+# ---------------------------------------------------------
+# [로직 영역]
+# ---------------------------------------------------------
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -113,7 +115,8 @@ with tab1:
     with c1:
         case_no = st.text_input("Case No", placeholder="e.g. IT30")
         patient = st.text_input("Patient Name")
-        sel_clinic = st.selectbox("Clinic", ["Select Clinic"] + sorted(ref_data['Clinic'].tolist()))
+        clinics = sorted(ref_data['Clinic'].tolist())
+        sel_clinic = st.selectbox("Clinic", ["Select Clinic"] + clinics)
     with c2:
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
         arch = st.radio("Arch", ["UPPER", "LOWER", "BOTH"], horizontal=True)
@@ -178,49 +181,7 @@ with tab2:
         """
         st.markdown(invoice_html, unsafe_allow_html=True)
         if st.button("🖨️ PRINT INVOICE"):
-            st.write('<script>window.print();</script>', unsafe_allow_html=True)            margin-bottom: -450px;
-        }
-    }
-    
-    /* 인보이스 헤더 & 로고 디자인 */
-    .inv-header { display: flex; justify-content: space-between; margin-bottom: 40px; }
-    .logo-main { font-size: 50px; font-weight: 900; font-style: italic; color: #1a4e8a !important; letter-spacing: -2px; line-height: 1; }
-    .info-right { text-align: right; }
-    .info-right h1 { font-size: 35px; margin-bottom: 5px; font-weight: 500; }
-    
-    .patient-line { 
-        margin-top: 20px; padding: 15px 0;
-        border-top: 2px solid black; border-bottom: 2px solid black;
-        font-size: 18px; font-weight: bold;
-    }
-    
-    .item-table { width: 100%; border-collapse: collapse; margin-top: 10px; min-height: 200px; }
-    .item-table th { border-bottom: 1px solid black; padding: 10px 0; text-align: left; }
-    .item-table td { padding: 20px 0; font-size: 16px; border: none !important; }
-
-    .bottom-section { margin-top: 50px; }
-    .total-line { display: flex; justify-content: space-between; font-weight: bold; font-size: 18px; margin-bottom: 30px; }
-    
-    .notice-box { border: 1.5px solid black; padding: 20px; text-align: center; }
-    .notice-box u { font-weight: bold; font-size: 16px; display: block; margin-bottom: 10px; text-decoration: underline !important; }
-    .notice-box p { font-size: 12px; line-height: 1.4; font-weight: 500; }
-
-    @media print {
-        .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-paper { 
-            transform: scale(1) !important;
-            border: none !important; width: 100% !important; margin: 0 !important; 
-        }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 이하 데이터 로직 동일
-if 'db' not in st.session_state: st.session_state.db = []
-if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
-
-ref_data = pd.DataFrame([
-    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Address": "205-7136 11 St NE, Calgary, AB", "Phone": "(403) 970-0600", "Region": "Local"},
+            st.write('<script>window.print();</script>', unsafe_allow_html=True)gion": "Local"},
     {"Clinic": "My Smile Family Dental", "Doctor": "Dr. Amhipreat Kaur", "Address": "13510 177 St NW, Edmonton, AB", "Phone": "(780) 455-6806", "Region": "Courier"}
 ])
 
