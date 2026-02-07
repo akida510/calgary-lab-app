@@ -4,62 +4,32 @@ from datetime import datetime, timedelta, date
 import google.generativeai as genai
 from PIL import Image
 
-# [수정 금지] 디자인 강제 고정 (시스템 테마 무시)
+# [수정 금지] 디자인 강제 고정 (시스템 테마 무시 및 가독성 보강)
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
-    /* 전체 배경 및 글자색 강제 지정 */
-    .stApp {
-        background-color: #0e1117 !important;
-        color: #ffffff !important;
-    }
-    
-    /* 헤더 스타일 */
+    .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     .header-container {
         display: flex; justify-content: space-between; align-items: center;
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-
-    /* 모든 입력창(텍스트, 날짜, 선택) 스타일 고정 */
     input, select, textarea, div[data-baseweb="select"] {
-        background-color: #1a1c24 !important;
-        color: #ffffff !important;
+        background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
     }
-
-    /* 입력창 안의 예시 글자(Placeholder) 색상 - 밝게 조정 */
-    input::placeholder, textarea::placeholder {
-        color: #aaaaaa !important;
-        opacity: 1;
-    }
-
-    /* 위젯 라벨(제목) 글자색 */
-    label p, .stMarkdown p, .stMetric p {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-    }
-
-    /* 탭 메뉴 스타일 */
-    .stTabs [data-baseweb="tab"] {
-        color: #ffffff !important;
-    }
-    
-    /* 버튼 스타일 */
+    input::placeholder, textarea::placeholder { color: #aaaaaa !important; opacity: 1; }
+    label p, .stMarkdown p, .stMetric p { color: #ffffff !important; font-weight: 600 !important; }
+    .stTabs [data-baseweb="tab"] { color: #ffffff !important; }
     .stButton>button {
         width: 100%; height: 3.5em; background-color: #4c6ef5 !important;
         color: white !important; font-weight: bold; border-radius: 5px; border: none;
     }
-
-    /* 라디오 버튼/체크박스 글자색 */
-    .stCheckbox, .stRadio {
-        color: #ffffff !important;
-    }
+    .stCheckbox, .stRadio { color: #ffffff !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 헤더 섹션
 st.markdown(f"""
     <div class="header-container">
         <div style="font-size: 24px; font-weight: 800; color: #ffffff;">🦷 Skycad Lab Night Guard Manager</div>
@@ -89,7 +59,6 @@ def get_shipping_date(due_date, clinic_name):
 tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 정산", "🔍 검색"])
 
 with tab1:
-    # 📷 사진 업로드
     uploaded_file = st.file_uploader("📷 프리스크립션 사진 촬영/업로드", type=["jpg", "jpeg", "png"])
     
     if uploaded_file:
@@ -123,14 +92,17 @@ with tab1:
     col3, col4, col5 = st.columns(3)
     
     with col5:
-        due_date = st.date_input("4th - Due Date", date.today() + timedelta(days=7))
+        # 4th -> 요청일
+        due_date = st.date_input("요청일 (Due Date)", date.today() + timedelta(days=7))
         
     with col3:
-        lab_done = st.date_input("2nd - Lab Done", date.today() + timedelta(days=1))
+        # 2nd -> 완료일
+        lab_done = st.date_input("완료일 (Lab Done)", date.today() + timedelta(days=1))
         
     with col4:
+        # 3rd -> 출고일
         ship_date = get_shipping_date(due_date, sel_clinic)
-        st.date_input("3rd - Shipping Date", ship_date)
+        st.date_input("출고일 (Shipping Date)", ship_date)
 
     if st.button("🚀 데이터 저장하기"):
         st.success(f"{case_no} 케이스 등록 완료!")
