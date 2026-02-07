@@ -8,33 +8,36 @@ st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
-    /* 모바일 가독성 확보 */
-    label p, .stMarkdown p, .stMetric p, p, span { color: #ffffff !important; }
-    
-    .header-container {
-        display: flex; justify-content: space-between; align-items: center;
-        background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
-        margin-bottom: 25px; border: 1px solid #30363d;
-    }
+    label p, .stMarkdown p, p, span { color: #ffffff !important; }
 
-    /* 실제 인보이스 스타일 */
-    .invoice-container {
+    /* 인보이스 출력 전용 스타일 (흰 종이 레이아웃) */
+    .invoice-paper {
         background-color: white !important; color: black !important;
-        padding: 40px; border-radius: 2px; font-family: 'Arial', sans-serif;
-        max-width: 800px; margin: 0 auto; border: 1px solid #ccc;
+        padding: 50px; border: 1px solid black; font-family: 'Arial', sans-serif;
+        width: 100%; max-width: 800px; margin: 0 auto; line-height: 1.3;
     }
-    .invoice-container p, .invoice-container b, .invoice-container span, 
-    .invoice-container h1, .invoice-container h2, .invoice-container div {
-        color: black !important;
-    }
-    .inv-grid { display: flex; justify-content: space-between; }
-    .inv-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-    .inv-table th { border-bottom: 2px solid black; text-align: left; padding: 5px; }
-    .inv-table td { border-bottom: 1px solid #eee; padding: 10px 5px; }
+    .invoice-paper * { color: black !important; margin: 0; padding: 0; }
     
+    .inv-header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+    .logo-area h1 { font-size: 45px; color: #0056b3 !important; font-style: italic; }
+    .logo-area p { font-size: 14px; font-weight: bold; }
+    
+    .ship-to { text-align: right; font-size: 14px; }
+    .ship-to h2 { font-size: 28px; margin-bottom: 10px; }
+    
+    .patient-area { border-top: 2px solid black; border-bottom: 2px solid black; padding: 15px 0; margin: 20px 0; font-size: 16px; }
+    
+    .item-table { width: 100%; border-collapse: collapse; min-height: 300px; }
+    .item-table th { border-bottom: 1px solid black; padding: 10px 0; text-align: left; }
+    .item-table td { padding: 15px 0; vertical-align: top; }
+    
+    .footer-box { border: 2px solid black; padding: 20px; margin-top: 30px; text-align: center; }
+    .footer-box h3 { text-decoration: underline; margin-bottom: 15px; font-size: 18px; }
+    .footer-box p { font-size: 12px; line-height: 1.5; }
+
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown { display: none !important; }
-        .invoice-container { border: none !important; margin: 0 !important; width: 100% !important; }
+        .invoice-paper { border: none !important; padding: 0 !important; width: 100% !important; max-width: none !important; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -45,99 +48,69 @@ st.markdown("""
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
-ref_data = pd.DataFrame([
-    {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local"},
-    {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier"},
-])
-
-def get_business_day(start_date, days_to_subtract):
-    current_date = start_date
-    while days_to_subtract > 0:
-        current_date -= timedelta(days=1)
-        if current_date.weekday() < 5: days_to_subtract -= 1
-    return current_date
-
 # ---------------------------------------------------------
 # [메인 화면]
 # ---------------------------------------------------------
-st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800; color:white;">🦷 Skycad Lab Night Guard Manager</div></div>', unsafe_allow_html=True)
-
-tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
+tab1, tab2, tab3 = st.tabs(["📝 등록", "📊 리스트/완료", "🔍 검색"])
 
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
     with c1:
-        case_no = st.text_input("Case No(팬번호)", placeholder="예: ET33")
-        patient = st.text_input("Patient(환자명)", placeholder="환자 성함")
-        clinics = sorted(list(set(ref_data['Clinic'].tolist())))
-        sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
-        filtered_docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
-        sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + filtered_docs)
+        case_no = st.text_input("Case No(팬번호)")
+        patient = st.text_input("Patient(환자명)")
+        clinic = st.text_input("Clinic(병원명)")
     with c2:
-        is_3d = st.checkbox("3D Model", value=True)
-        today = date.today()
-        if is_3d:
-            st.text_input("접수일", value=today.strftime("%Y-%m-%d"), disabled=True)
-            rec_date = today
-        else:
-            rec_date = st.date_input("접수일", today)
+        doctor = st.text_input("Doctor(의사명)")
         material = st.radio("Material", ["Thermo", "Dual", "Soft"], horizontal=True)
-        arch = st.radio("Arch", ["Max", "Mand", "Both"], horizontal=True)
+        arch = st.radio("Arch", ["Upper", "Lower", "Both"], horizontal=True)
 
-    st.markdown("### 📅 일정 관리")
-    col3, col4, col5 = st.columns(3)
-    with col5: due_date = st.date_input("요청일 (Due Date)", today + timedelta(days=7))
-    with col3: lab_done_date = st.date_input("완료일 (Lab Done)", today + timedelta(days=1))
-    with col4:
-        ship_date = get_business_day(due_date, 1 if (sel_clinic != "선택" and ref_data[ref_data['Clinic']==sel_clinic]['Region'].iloc[0]=="Local") else 2)
-        st.date_input("출고일 (Shipping Date)", ship_date)
-
-    if st.button("💾 케이스 저장 (접수 완료)"):
-        if sel_clinic == "선택" or not case_no:
-            st.error("Case No와 Clinic은 필수입니다.")
-        else:
-            new_case = {
-                "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
-                "Doctor": sel_doctor, "Material": material, "Arch": arch,
-                "Received": rec_date, "Due": due_date, "Lab Done": lab_done_date, "Status": "Pending"
-            }
-            st.session_state.db.append(new_case)
-            st.success(f"{case_no}번 등록 완료!")
+    if st.button("💾 저장"):
+        st.session_state.db.append({
+            "Case No": case_no, "Patient": patient, "Clinic": clinic, 
+            "Doctor": doctor, "Material": material, "Arch": arch, "Status": "Pending"
+        })
+        st.success("저장되었습니다.")
 
 with tab2:
-    st.subheader("📊 작업 진행 리스트")
     for i, row in enumerate(st.session_state.db):
-        c_info, c_btn = st.columns([4, 1])
-        with c_info:
-            st.markdown(f"**{'🟡' if row['Status']=='Pending' else '🟢'} {row['Case No']}** | {row['Patient']} | {row['Clinic']}")
-        with c_btn:
-            if st.button(f"완료/인보이스", key=f"inv_{i}"):
-                st.session_state.db[i]['Status'] = "Completed"
-                st.session_state.selected_invoice = st.session_state.db[i]
+        col_inf, col_btn = st.columns([4, 1])
+        with col_inf: st.write(f"{row['Case No']} | {row['Patient']} | {row['Clinic']}")
+        with col_btn:
+            if st.button("완료 및 인보이스", key=f"inv_{i}"):
+                st.session_state.selected_invoice = row
                 st.rerun()
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        # 요청하신 기본 금액 180.00 반영
+        
+        # 사진과 똑같은 HTML 구조
         invoice_html = f"""
-        <div class="invoice-container">
-            <div class="inv-grid">
-                <div>
-                    <h2 style="color:#0056b3 !important; margin:0;">skycad</h2>
-                    <p style="font-size:12px; margin:0;">Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9</p>
+        <div class="invoice-paper">
+            <div class="inv-header">
+                <div class="logo-area">
+                    <p style="font-size:10px;">DENTAL TECHNOLOGY LTD</p>
+                    <h1>skycad</h1>
+                    <p>Skycad AB<br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</p>
                 </div>
-                <div style="text-align: right;">
-                    <h1 style="margin:0;">INVOICE</h1>
-                    <p style="margin:0;">{date.today().strftime('%m/%d/%Y')}</p>
-                    <br>
-                    <p style="margin:0; font-size:13px;"><b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}</p>
+                <div class="ship-to">
+                    <h2>INVOICE</h2>
+                    <p>No. 162084</p>
+                    <p>{date.today().strftime('%-m/%-d/%Y')}</p>
+                    <br><br>
+                    <p><b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>병원 주소 및 전화번호 (추후 데이터 연동)</p>
                 </div>
             </div>
-            <p style="margin-top:30px;"><b>Patient:</b> {inv['Patient'].upper()}</p>
-            <table class="inv-table">
-                <thead><tr><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
+
+            <div class="patient-area">
+                <b>Patient:</b> {inv['Patient'].upper()}
+            </div>
+
+            <table class="item-table">
+                <thead>
+                    <tr><th>Description</th><th style="text-align:right;">Amount</th></tr>
+                </thead>
                 <tbody>
                     <tr>
                         <td>Nightguard ({inv['Material']}) {inv['Arch'].upper()}</td>
@@ -145,12 +118,18 @@ with tab2:
                     </tr>
                 </tbody>
             </table>
-            <div class="inv-grid" style="margin-top:50px; font-weight:bold;">
+
+            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-top:20px; font-size:18px;">
                 <div>{inv['Case No']}</div>
                 <div>Total: $180.00</div>
+            </div>
+
+            <div class="footer-box">
+                <h3>All dental products we offer are custom made in Canada.</h3>
+                <p> Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.552% APR, Thank you.</p>
             </div>
         </div>
         """
         st.markdown(invoice_html, unsafe_allow_html=True)
-        if st.button("🖨️ 인쇄하기"):
+        if st.button("🖨️ 인보이스 출력"):
             st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
