@@ -10,12 +10,15 @@ current_month = now.strftime('%m월')
 PRE_TAX_UNIT = 30.0
 POST_TAX_UNIT = 19.505333
 
+# 인보이스 배경(Overlay)과 종이(Paper) 디자인 고정
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117 !important; }
     .main-header { padding: 10px 0 20px 0; border-bottom: 1px solid #333; margin-bottom: 20px; }
     .main-title { color: #ffffff; font-size: 1.8rem; font-weight: 800; margin: 0; text-transform: uppercase; }
     .author-info { color: #94a3b8; font-size: 0.85rem; margin-top: 5px; }
+    
+    /* 대시보드 */
     .slim-dashboard {
         background: #1e212b; padding: 12px 20px; border-radius: 12px;
         border: 1px solid #3d414d; display: flex; justify-content: space-between;
@@ -31,15 +34,39 @@ st.markdown("""
     }
     .money-text { color: #4ade80; font-weight: 600; font-size: 0.95rem; }
     
-    /* 인보이스 박스 디자인 */
-    .invoice-overlay { background-color: rgba(0,0,0,0.95); padding: 30px; display: flex; justify-content: center; }
-    .invoice-paper {
-        background-color: #ffffff !important; width: 100%; max-width: 780px; 
-        min-height: 1000px; padding: 60px; border: 1.5px solid #000; margin: 0 auto;
-        display: flex; flex-direction: column; color: #000 !important; box-sizing: border-box;
+    /* 인보이스 핵심 디자인 - 절대 수정 금지 */
+    .invoice-overlay { 
+        background-color: rgba(0,0,0,0.95); 
+        padding: 40px 20px; 
+        display: flex; 
+        justify-content: center; 
+        width: 100%;
     }
-    .invoice-paper * { color: #000000 !important; -webkit-text-fill-color: #000000 !important; font-family: 'Arial', sans-serif !important; }
-    .notice-box { border: 1.5px solid black; padding: 15px; text-align: center; font-size: 11px; line-height: 1.4; margin-top: 20px; }
+    .invoice-paper {
+        background-color: #ffffff !important; 
+        width: 100%; 
+        max-width: 800px; 
+        min-height: 1000px; 
+        padding: 50px; 
+        border: 1.5px solid #000; 
+        display: flex; 
+        flex-direction: column; 
+        color: #000 !important; 
+        box-sizing: border-box;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .invoice-paper * { 
+        color: #000000 !important; 
+        font-family: 'Arial', sans-serif !important; 
+    }
+    .notice-box { 
+        border: 1.5px solid black; 
+        padding: 15px; 
+        text-align: center; 
+        font-size: 11px; 
+        line-height: 1.5; 
+        margin-top: 30px; 
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -100,7 +127,7 @@ with tab1:
 
         submit = st.form_submit_button("💾 모든 정보 저장")
         if submit:
-            if case_no and sel_cln != "선택 안 함":
+            if case_no and (sel_cln != "선택 안 함" or final_dr):
                 c_info = ref_data[ref_data["Clinic"] == sel_cln].iloc[0] if sel_cln in ref_data["Clinic"].values else {"Address": "", "City": "", "Phone": ""}
                 st.session_state.db.append({
                     "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient,
@@ -117,32 +144,31 @@ with tab2:
     for i, row in enumerate(st.session_state.db):
         col1, col2 = st.columns([4, 1])
         col1.write(f"**No. {row['Inv_No']}** | {row['Patient']} ({row['Clinic']})")
-        if col2.button("🔍 Invoice", key=f"v_{i}"): st.session_state.active_invoice = row
+        if col2.button("🔍 Invoice", key=f"v_{i}"): 
+            st.session_state.active_invoice = row
+            st.rerun()
 
-with tab3:
-    sq = st.text_input("검색 (환자, 병원, 의사명)")
-    if sq:
-        res = [r for r in st.session_state.db if sq.lower() in str(r).lower()]
-        for r in res: st.write(f"✅ {r['Case No']} | {r['Patient']} | {r.get('Dr', 'N/A')}")
-
-# [5. 인보이스 미리보기]
+# [5. 인보이스 미리보기 영역 - 여기서부터 끝까지 집중]
 if st.session_state.active_invoice:
     st.markdown('---')
-    if st.button("❌ 닫기"): st.session_state.active_invoice = None; st.rerun()
+    if st.button("❌ 닫기"): 
+        st.session_state.active_invoice = None
+        st.rerun()
+        
     inv = st.session_state.active_invoice
     
+    # HTML 시작
     st.markdown(f"""
     <div class="invoice-overlay">
         <div class="invoice-paper">
+            
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div>
-                    <div style="display:flex; align-items:center;">
-                        <div style="line-height:1;">
-                            <span style="font-size:8px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
-                            <span style="font-size:38px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-2px;">skycad</span>
-                        </div>
+                    <div style="line-height:1;">
+                        <span style="font-size:8px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
+                        <span style="font-size:38px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-2px;">skycad</span>
                     </div>
-                    <div style="font-size:11px; margin-top:10px; line-height:1.3;">
+                    <div style="font-size:11px; margin-top:15px; line-height:1.4;">
                         <b>Skycad AB</b><br>
                         205-7136 11 St NE<br>
                         Calgary, AB T2E 4Y9<br>
@@ -151,8 +177,8 @@ if st.session_state.active_invoice:
                 </div>
                 <div style="text-align: right; line-height:1.2;">
                     <h1 style="font-size:32px; font-weight:400; margin:0; letter-spacing:1px;">INVOICE</h1>
-                    <p style="font-size:12px; margin:5px 0;">No. {inv['Inv_No']}<br>{inv['Date']}</p>
-                    <div style="text-align:left; font-size:11px; margin-top:15px;">
+                    <p style="font-size:12px; margin:8px 0;">No. {inv['Inv_No']}<br>{inv['Date']}</p>
+                    <div style="text-align:left; font-size:11px; margin-top:20px; line-height:1.4;">
                         <b>Ship To:</b><br>
                         {inv['Clinic']}<br>
                         {inv.get('Dr', '')}<br>
@@ -163,31 +189,31 @@ if st.session_state.active_invoice:
                 </div>
             </div>
 
-            <div style="margin-top: 40px; padding: 10px 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: 13px;">
+            <div style="margin-top: 45px; padding: 12px 0; border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; font-size: 14px;">
                 <b>Patient:</b> {inv['Patient'].upper()}
             </div>
 
-            <div style="flex: 1; margin-top: 20px;">
+            <div style="flex: 1; margin-top: 30px;">
                 <table style="width: 100%; border-collapse: collapse;">
                     <thead>
                         <tr style="border-bottom: 1px solid #000;">
-                            <th style="text-align:left; padding-bottom: 5px; font-size:12px; text-decoration:underline;">Description</th>
-                            <th style="text-align:right; padding-bottom: 5px; font-size:12px; text-decoration:underline;">Amount</th>
+                            <th style="text-align:left; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Description</th>
+                            <th style="text-align:right; padding-bottom: 8px; font-size:12px; text-decoration:underline;">Amount</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td style="padding:20px 0; font-size: 13px;">Nightguard ({inv['Material']}) {inv['Arch']}</td>
-                            <td style="text-align:right; font-size: 13px;">$180.00</td>
+                            <td style="padding:25px 0; font-size: 14px;">Nightguard ({inv['Material']}) {inv['Arch']}</td>
+                            <td style="text-align:right; font-size: 14px; font-weight:bold;">$180.00</td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
-            <div style="border-top: 1px solid #000; padding-top: 10px;">
-                <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:bold;">
+            <div style="border-top: 1.5px solid #000; padding-top: 15px;">
+                <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:bold;">
                     <div>ET12</div>
-                    <div>Total: $180.00</div>
+                    <div style="font-size:15px;">Total: $180.00</div>
                 </div>
                 
                 <div class="notice-box">
@@ -195,6 +221,5 @@ if st.session_state.active_invoice:
                     Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.
                 </div>
             </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+
+        </div> </div> """, unsafe_allow_html=True)
