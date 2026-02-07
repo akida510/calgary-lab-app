@@ -106,7 +106,8 @@ with tab1:
             st.session_state.db.append({
                 "Inv_No": st.session_state.inv_counter, "Case No": case_no, "Patient": patient, 
                 "Clinic": cln, "Doctor": info["Doctor"], "Address": info["Address"], 
-                "Phone": info["Phone"], "Material": mat, "Arch": arc, "Date": date.today().strftime('%m/%d/%Y')
+                "Phone": info["Phone"], "Material": mat, "Arch": arc, 
+                "Date": date.today().strftime('%m/%d/%Y') # 날짜 저장 추가
             })
             st.session_state.inv_counter += 1
             st.rerun()
@@ -124,6 +125,10 @@ with tab2:
             st.rerun()
         
         inv = st.session_state.active_invoice
+        
+        # 에러 방지: 데이터에 Date가 없으면 오늘 날짜 표시
+        inv_date = inv.get('Date', date.today().strftime('%m/%d/%Y'))
+        
         st.markdown(f"""
         <div class="invoice-overlay">
             <div class="invoice-paper">
@@ -136,9 +141,9 @@ with tab2:
                         </div>
                         <div style="text-align: right;">
                             <h1 style="font-size:30px; font-weight:400; margin:0;">INVOICE</h1>
-                            <p style="margin:5px 0; font-size:12px;">No. {inv['Inv_No']} | {inv['Date']}</p>
+                            <p style="margin:5px 0; font-size:12px;">No. {inv['Inv_No']} | {inv_date}</p>
                             <div style="text-align:left; font-size:11px; border-top:1px solid #000; padding-top:5px; margin-top:10px;">
-                                <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Address']}
+                                <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv.get('Address', '')}
                             </div>
                         </div>
                     </div>
