@@ -2,38 +2,58 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [수정 금지] 희철님 원본 디자인 설정
+# [수정 금지] 희철님 원본 디자인 및 테마 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
+    /* 전체 배경 및 글자색 강제 고정 */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
+    
+    /* 모든 텍스트 및 라벨 백색 고정 */
+    label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p, span, div { 
+        color: #ffffff !important; 
+    }
+    
+    /* 입력창 및 선택창 스타일 */
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
         border: 1px solid #4a4a4a !important;
     }
     input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
-    label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
-        color: #ffffff !important; font-weight: 600 !important; 
-    }
+
+    /* 헤더 스타일 */
     .header-container {
         display: flex; justify-content: space-between; align-items: center;
         background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
         margin-bottom: 25px; border: 1px solid #30363d;
     }
-    /* 원본 유지: 큰 파란색 버튼 */
+    
+    /* Tab 1 저장 버튼 (원본: 크게) */
     .stButton>button { 
         width: 100%; height: 3.5em; background-color: #4c6ef5 !important; 
         color: white !important; font-weight: bold; border-radius: 5px; 
     }
-    
-    /* 인보이스 전용 (화면 출력 및 인쇄용) */
-    .real-invoice {
-        background-color: white !important; color: black !important;
-        padding: 40px; border-radius: 0px; font-family: Arial, sans-serif;
-        min-height: 1000px; line-height: 1.2;
+
+    /* Tab 2 인보이스 버튼 (수정: 슬림하고 세련되게) */
+    div[data-testid="stHorizontalBlock"] .stButton>button {
+        height: 28px !important;
+        width: auto !important;
+        font-size: 11px !important;
+        padding: 0 15px !important;
+        background-color: #2b3a67 !important;
+        border: 1px solid #4c6ef5 !important;
+        margin-top: 5px;
     }
-    .real-invoice * { color: black !important; }
+
+    /* 인보이스 출력 디자인 */
+    .real-invoice {
+        background-color: white !important; padding: 50px; 
+        border-radius: 0px; font-family: Arial, sans-serif;
+        min-height: 1050px; line-height: 1.2;
+    }
+    /* 인보이스 내부 글자는 무조건 검정 */
+    .real-invoice * { color: black !important; border-color: black !important; }
 
     @media print {
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
@@ -45,7 +65,6 @@ st.markdown("""
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
-# 병원 데이터 (주소 추가)
 ref_data = pd.DataFrame([
     {"Clinic": "Calgary Central", "Doctor": "Lana Huynh", "Region": "Local", "Addr": "205-7136 11 St NE", "City": "Calgary, AB T2E 4Y9"},
     {"Clinic": "Edmonton North", "Doctor": "Joseph M.", "Region": "Courier", "Addr": "13510 127 St NW", "City": "Edmonton, AB T5L 1B9"},
@@ -58,11 +77,11 @@ def get_business_day(start_date, days_to_subtract):
         if current_date.weekday() < 5: days_to_subtract -= 1
     return current_date
 
-st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Heechul Jung Edition</div></div>', unsafe_allow_html=True)
+# 헤더 문구 수정 완료
+st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800; color:white !important;">🦷 Skycad Lab Night Guard Manager</div><div style="font-size: 12px; color:white !important;">Designed by Heechul Jung</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
-# --- Tab 1: 케이스 등록 (희철님 원본 코드 100% 유지) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
@@ -93,24 +112,23 @@ with tab1:
         st.date_input("출고일 (Shipping Date)", ship_date)
 
     if st.button("💾 케이스 저장 (접수 완료)"):
-        if sel_clinic == "선택" or not case_no: st.error("Case No와 Clinic은 필수 입력 사항입니다.")
+        if sel_clinic == "선택" or not case_no: st.error("필수 정보를 입력하세요.")
         else:
             c_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
                 "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
                 "Doctor": sel_doctor, "Material": material, "Arch": arch,
-                "Received": rec_date, "Due": due_date, "Lab Done": lab_done_date, "Status": "Pending",
+                "Lab Done": lab_done_date, "Status": "Pending",
                 "Addr": c_info['Addr'], "City": c_info['City']
             })
-            st.success(f"{case_no}번 케이스 등록 완료!")
+            st.success("등록 완료!")
 
-# --- Tab 2: 리스트 및 세련된 인보이스 ---
 with tab2:
-    if not st.session_state.db: st.info("대기 중인 케이스가 없습니다.")
+    if not st.session_state.db: st.info("데이터가 없습니다.")
     else:
         for i, row in enumerate(st.session_state.db):
-            c_info, c_btn = st.columns([4, 1])
-            with c_info: st.write(f"**{'🟡' if row['Status']=='Pending' else '🟢'} {row['Case No']}** | {row['Patient']} | {row['Clinic']}")
+            c_info, c_btn = st.columns([5, 1])
+            with c_info: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
             with c_btn:
                 if st.button("완료/출력", key=f"inv_{i}"):
                     st.session_state.db[i]['Status'] = "Completed"
@@ -120,47 +138,46 @@ with tab2:
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        # [핵심] 짤림 없고 코드 노출 없는 인보이스 HTML
         st.markdown(f"""
         <div class="real-invoice">
-            <table style="width:100%; border:none;">
+            <table style="width:100%; border:none; margin-bottom: 20px;">
                 <tr>
                     <td style="width:60%;">
                         <span style="font-size:10px; font-weight:bold;">DENTAL TECHNOLOGY Ltd</span><br>
-                        <span style="font-size:60px; font-weight:900; font-style:italic; color:#1a4e8a; letter-spacing:-4px; line-height:0.8;">skycad</span><br>
-                        <div style="margin-top:15px; font-size:12px;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
+                        <span style="font-size:65px; font-weight:900; font-style:italic; color:#1a4e8a !important; letter-spacing:-4px; line-height:0.8;">skycad</span><br>
+                        <div style="margin-top:20px; font-size:13px; line-height:1.2;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
                     </td>
                     <td style="text-align:right; vertical-align:top;">
-                        <h1 style="font-size:50px; margin:0; font-weight:400; letter-spacing:8px;">INVOICE</h1>
+                        <h1 style="font-size:55px; margin:0; font-weight:400; letter-spacing:8px;">INVOICE</h1>
                         <p style="font-size:16px; margin:5px 0;">No. {inv['Case No'].replace('ET','')}<br>{inv['Lab Done'].strftime('%d/%m/%Y')}</p>
-                        <div style="text-align:left; border:1px solid black; padding:12px; width:210px; float:right; margin-top:10px; font-size:12px;">
+                        <div style="text-align:left; border:1.5px solid black; padding:15px; width:220px; float:right; margin-top:15px; font-size:13px;">
                             <b>Ship To:</b><br>{inv['Clinic']}<br>{inv['Doctor']}<br>{inv['Addr']}<br>{inv['City']}
                         </div>
                     </td>
                 </tr>
             </table>
-            <div style="margin: 50px 0 20px 0; font-size:22px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
-            <table style="width:100%; border-top:2px solid black; border-bottom:2px solid black; border-collapse:collapse;">
-                <tr style="border-bottom:1px solid black; font-weight:bold; font-size:17px;">
-                    <td style="padding:10px;">Description</td>
-                    <td style="padding:10px; text-align:right;">Amount</td>
+            <div style="margin: 60px 0 20px 0; font-size:22px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
+            <table style="width:100%; border-top:2.5px solid black; border-bottom:2.5px solid black; border-collapse:collapse;">
+                <tr style="border-bottom:1.2px solid black; font-weight:bold; font-size:18px;">
+                    <td style="padding:12px 5px;">Description</td>
+                    <td style="padding:12px 5px; text-align:right;">Amount</td>
                 </tr>
                 <tr>
-                    <td style="padding:30px 10px; height:400px; vertical-align:top; font-size:17px;">Nightguard ({inv['Material']}) - {inv['Arch']}</td>
-                    <td style="padding:30px 10px; text-align:right; vertical-align:top; font-size:17px;">$180.00</td>
+                    <td style="padding:30px 5px; height:430px; vertical-align:top; font-size:18px;">Nightguard ({inv['Material']}) - {inv['Arch']}</td>
+                    <td style="padding:30px 5px; text-align:right; vertical-align:top; font-size:18px;">$180.00</td>
                 </tr>
             </table>
-            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:20px; margin:20px 0 60px 0;">
+            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:20px; margin:25px 0 60px 0;">
                 <span>{inv['Case No']}</span><span>Total: $180.00</span>
             </div>
             <div style="text-align:center;">
-                <div style="font-size:18px; font-weight:bold; text-decoration:underline; margin-bottom:15px;">All dental products we offer are custom made in Canada.</div>
-                <p style="font-size:11px; line-height:1.6; padding:0 40px;">Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.</p>
+                <div style="font-size:19px; font-weight:bold; text-decoration:underline; margin-bottom:20px;">All dental products we offer are custom made in Canada.</div>
+                <p style="font-size:11.5px; line-height:1.7; padding:0 40px;">Please ensure your monthly payment is made within 30 days of receiving your statement. Any balances remaining after 30 days will be automatically charged to the credit card on file. Otherwise, any balances over 30 days will be subject to a finance charge of 1.5% per month. This has an equivalent rate of 19.562% APR. Thank you.</p>
             </div>
-            <div style="margin-top:60px; border-top:1px solid black; width:220px; padding-top:10px; font-size:13px;">Authorized Signature</div>
+            <div style="margin-top:70px; border-top:1.5px solid black; width:240px; padding-top:10px; font-size:14px;">Authorized Signature</div>
         </div>
         """, unsafe_allow_html=True)
-        if st.button("🖨️ 인쇄하기 (Print)"):
+        if st.button("🖨️ Print Invoice"):
             st.markdown('<script>window.print();</script>', unsafe_allow_html=True)
 
-with tab3: st.write("🔍 검색 기능")
+with tab3: st.write("Search...")
