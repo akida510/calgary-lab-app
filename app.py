@@ -5,13 +5,11 @@ from datetime import datetime, timedelta, date
 # [수정 금지] 페이지 설정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
-# 1. CSS: 등록창은 건드리지 않고 인보이스만 폰에 맞게 리사이징
 st.markdown("""
     <style>
-    /* 배경 및 기본 스타일 */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     
-    /* 인보이스 전용: 폰에서 한눈에 보이게 하는 마법의 코드 */
+    /* 인보이스 짤림 방지: 화면 너비가 작아지면 종이도 같이 리사이징 */
     .invoice-wrapper {
         width: 100%;
         display: flex;
@@ -22,9 +20,9 @@ st.markdown("""
     .invoice-paper {
         background-color: white !important;
         color: black !important;
-        width: 100%;           /* 폰 너비에 맞춤 */
-        max-width: 816px;      /* PC에선 레터지 크기 */
-        aspect-ratio: 8.5 / 11; /* 레터지 비율 고정 */
+        width: 100%;           /* 폰에서는 100% */
+        max-width: 816px;      /* PC에서는 레터지 크기 고정 */
+        aspect-ratio: 8.5 / 11; 
         padding: 5% !important;
         box-sizing: border-box !important;
         box-shadow: 0 0 20px rgba(0,0,0,0.5);
@@ -42,7 +40,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 데이터 로직
+# 데이터 로직
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -58,12 +56,12 @@ def get_business_day(start_date, days_to_subtract):
         if current_date.weekday() < 5: days_to_subtract -= 1
     return current_date
 
-# 3. 헤더
-st.markdown(f'<div style="background-color: #1a1c24; padding: 20px; border-radius: 10px; margin-bottom: 25px; border: 1px solid #30363d;"><div style="font-size: 24px; font-weight: 800;">實 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Designed By Heechul Jung</div></div>', unsafe_allow_html=True)
+# --- 제목 수정 (實 삭제) ---
+st.markdown(f'<div style="background-color: #1a1c24; padding: 20px; border-radius: 10px; margin-bottom: 25px; border: 1px solid #30363d;"><div style="font-size: 24px; font-weight: 800;">Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Designed By Heechul Jung</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
-# --- Tab 1: 케이스 등록 (희철님 원본 100% 복구) ---
+# --- Tab 1: 케이스 등록 (완벽 원복) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
@@ -90,12 +88,13 @@ with tab1:
     with col5: due_date = st.date_input("요청일 (Due Date)", today + timedelta(days=7))
     with col3: lab_done_date = st.date_input("완료일 (Lab Done)", today + timedelta(days=1))
     with col4:
-        ship_date = get_business_day(due_date, 1 if (sel_clinic != "선택" and ref_data[ref_data['Clinic']==sel_clinic]['Region'].iloc[0]=="Local") else 2)
+        ship_days = 1 if (sel_clinic != "선택" and ref_data[ref_data['Clinic']==sel_clinic]['Region'].iloc[0]=="Local") else 2
+        ship_date = get_business_day(due_date, ship_days)
         st.date_input("출고일 (Shipping Date)", ship_date)
 
     if st.button("💾 케이스 저장 (접수 완료)"):
         if sel_clinic == "선택" or not case_no:
-            st.error("필수 정보를 입력하세요.")
+            st.error("Case No와 Clinic을 입력해주세요.")
         else:
             c_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
@@ -104,27 +103,25 @@ with tab1:
                 "Lab Done": lab_done_date, "Status": "Pending",
                 "Addr": c_info['Addr'], "City": c_info['City'], "Phone": c_info['Phone']
             })
-            st.success(f"{case_no}번 등록 완료!")
+            st.success("등록되었습니다.")
 
-# --- Tab 2: 리스트 및 완료/취소 기능 ---
+# --- Tab 2: 리스트 & 완료/취소 ---
 with tab2:
-    if not st.session_state.db: st.info("케이스가 없습니다.")
-    else:
-        for i, row in enumerate(st.session_state.db):
-            c_info, c_btn1, c_btn2 = st.columns([3, 1.5, 1])
-            with c_info:
-                st.write(f"{'🟡' if row['Status']=='Pending' else '🟢'} **{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
-            with c_btn1:
-                if st.button("완료/인보이스", key=f"done_{i}"):
-                    st.session_state.db[i]['Status'] = "Completed"
-                    st.session_state.selected_invoice = st.session_state.db[i]
+    for i, row in enumerate(st.session_state.db):
+        c_info, c_btn1, c_btn2 = st.columns([3, 1.5, 1])
+        with c_info:
+            st.write(f"{'🟡' if row['Status']=='Pending' else '🟢'} **{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
+        with c_btn1:
+            if st.button("완료/인보이스", key=f"d_{i}"):
+                st.session_state.db[i]['Status'] = "Completed"
+                st.session_state.selected_invoice = st.session_state.db[i]
+                st.rerun()
+        with c_btn2:
+            if row['Status'] == "Completed":
+                if st.button("취소", key=f"u_{i}"):
+                    st.session_state.db[i]['Status'] = "Pending"
+                    st.session_state.selected_invoice = None
                     st.rerun()
-            with c_btn2:
-                if row['Status'] == "Completed":
-                    if st.button("취소", key=f"undo_{i}"):
-                        st.session_state.db[i]['Status'] = "Pending"
-                        st.session_state.selected_invoice = None
-                        st.rerun()
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
@@ -135,33 +132,33 @@ with tab2:
                 <div style="display: flex; justify-content: space-between;">
                     <div>
                         <div style="font-size: 10px; font-weight: bold; color: #1a4e8a !important;">DENTAL TECHNOLOGY Ltd</div>
-                        <div style="font-size: clamp(35px, 10vw, 65px); font-weight: 900; font-style: italic; color: #1a4e8a !important; line-height: 0.8; letter-spacing: -3px;">skycad</div>
-                        <div style="margin-top: 15px; font-size: 12px;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
+                        <div style="font-size: clamp(30px, 10vw, 65px); font-weight: 900; font-style: italic; color: #1a4e8a !important; line-height: 0.8; letter-spacing: -3px;">skycad</div>
+                        <div style="margin-top: 10px; font-size: 12px;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
                     </div>
                     <div style="text-align: right;">
-                        <div style="font-size: clamp(20px, 5vw, 32px); font-weight: bold; letter-spacing: 4px;">INVOICE</div>
-                        <div style="font-size: 14px; font-weight: bold;">No. 162{inv['Case No'].replace('ET', '')}<br>{inv['Lab Done'].strftime('%m/%d/%Y')}</div>
-                        <div style="margin-top: 20px; text-align: left; font-size: 11px; border: 1.5px solid black; padding: 10px; width: 200px; display: inline-block;">
+                        <div style="font-size: clamp(18px, 5vw, 32px); font-weight: bold;">INVOICE</div>
+                        <div style="font-size: 13px; font-weight: bold;">No. 162{inv['Case No'].replace('ET', '')}<br>{inv['Lab Done'].strftime('%m/%d/%Y')}</div>
+                        <div style="margin-top: 15px; text-align: left; font-size: 11px; border: 1.5px solid black; padding: 10px; width: 180px; display: inline-block;">
                             <b>Ship To:</b><br>{inv['Clinic']}<br>Dr. {inv['Doctor']}<br>{inv['Addr']}<br>{inv['City']}
                         </div>
                     </div>
                 </div>
-                <div style="margin: 40px 0 10px 0; font-size: 18px; border-bottom: 2px solid black; padding-bottom: 5px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
-                <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                <div style="margin: 30px 0 10px 0; font-size: 18px; border-bottom: 2px solid black; padding-bottom: 5px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
+                <table style="width: 100%; border-collapse: collapse;">
                     <tr style="border-bottom: 1.5px solid black; font-weight: bold; font-size: 14px;">
                         <td style="padding: 10px 0;">Description</td>
                         <td style="padding: 10px 0; text-align: right;">Amount</td>
                     </tr>
                     <tr>
-                        <td style="padding: 20px 0; height: 300px; vertical-align: top; font-size: 14px;">Nightguard ({inv['Material']}) {inv['Arch'].upper()}</td>
-                        <td style="padding: 20px 0; text-align: right; vertical-align: top; font-size: 14px;">$180.00</td>
+                        <td style="padding: 20px 0; height: 300px; vertical-align: top;">Nightguard ({inv['Material']}) {inv['Arch'].upper()}</td>
+                        <td style="padding: 20px 0; text-align: right; vertical-align: top;">$180.00</td>
                     </tr>
                 </table>
                 <div style="border-top: 2px solid black; padding-top: 10px; display: flex; justify-content: space-between; font-weight: bold; font-size: 18px;">
                     <span>{inv['Case No']}</span><span>Total: $180.00</span>
                 </div>
-                <div style="margin-top: auto; text-align: center; padding-bottom: 20px;">
-                    <div style="font-size: 12px; font-weight: bold; text-decoration: underline; margin-bottom: 5px;">All dental products we offer are custom made in Canada.</div>
+                <div style="margin-top: auto; text-align: center; font-size: 12px; font-weight: bold; text-decoration: underline;">
+                    All dental products we offer are custom made in Canada.
                 </div>
             </div>
         </div>
