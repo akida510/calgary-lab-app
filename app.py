@@ -2,54 +2,78 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, date
 
-# [수정 금지] 디자인 및 테마 고정
+# [수정 금지] 디자인 설정 및 테마 강제 고정
 st.set_page_config(page_title="Skycad Lab Manager", layout="wide")
 
 st.markdown("""
     <style>
-    /* 전체 배경 및 기본 스타일 */
+    /* 전체 배경 및 글자색 강제 고정 */
     .stApp { background-color: #0e1117 !important; color: #ffffff !important; }
     input, select, textarea, div[data-baseweb="select"] {
         background-color: #1a1c24 !important; color: #ffffff !important;
+        border: 1px solid #4a4a4a !important;
+    }
+    input:disabled { background-color: #262730 !important; color: #aaaaaa !important; }
+    label p, .stMarkdown p, .stMetric p, .stTabs [data-baseweb="tab"] p { 
+        color: #ffffff !important; font-weight: 600 !important; 
+    }
+
+    .header-container {
+        display: flex; justify-content: space-between; align-items: center;
+        background-color: #1a1c24; padding: 20px 30px; border-radius: 10px;
+        margin-bottom: 25px; border: 1px solid #30363d;
     }
     
-    /* [핵심] 폰에서 짤림 방지: 가로 스크롤 허용 */
-    .invoice-container {
+    .stButton>button { 
+        width: 100%; height: 3.5em; background-color: #4c6ef5 !important; 
+        color: white !important; font-weight: bold; border-radius: 5px; 
+    }
+    
+    /* [인보이스 전용] 폰 화면에 맞춰 전체 축소 로직 */
+    .invoice-outer-wrapper {
         width: 100%;
-        overflow-x: auto; /* 폰에서 양옆이 짤리면 손가락으로 밀어서 볼 수 있게 함 */
+        display: flex;
+        justify-content: center;
         background-color: #222;
-        padding: 10px;
-        display: block;
+        padding: 10px 0;
+        overflow: hidden; /* 스크롤 없앰 */
     }
 
-    .invoice-paper {
+    .invoice-paper-letter {
         background-color: white !important;
         color: black !important;
-        width: 794px !important;    /* A4/Letter 근사치 픽셀 고정 */
-        min-height: 1056px;
-        padding: 40px !important;
-        margin: 0 auto;             /* 중앙 정렬 */
-        box-sizing: border-box;
-        box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        width: 816px !important;    /* 8.5인치 고정 */
+        height: 1056px !important;  /* 11인치 고정 */
+        padding: 45px !important;
+        box-sizing: border-box !important;
+        position: relative !important;
+        flex-shrink: 0;
+        box-shadow: 0 0 20px rgba(0,0,0,0.5);
     }
 
-    /* 텍스트 줄바꿈 방지 및 색상 강제 */
-    .invoice-paper * { 
-        color: black !important; 
-        border-color: black !important; 
-        white-space: nowrap; 
+    /* 폰 화면(816px 이하)에서 종이 전체를 강제 축소하여 한눈에 보이게 함 */
+    @media screen and (max-width: 816px) {
+        .invoice-outer-wrapper {
+            height: calc(1056px * (100vw / 840)); /* 축소된 높이만큼 영역 확보 */
+        }
+        .invoice-paper-letter {
+            transform: scale(calc(100vw / 840)); /* 화면 너비에 맞춰 줌 아웃 */
+            transform-origin: top center;
+        }
     }
+
+    .invoice-paper-letter * { color: black !important; border-color: black !important; }
 
     @media print {
         @page { size: letter; margin: 0; }
         .stButton, .header-container, .stTabs, [data-testid="stSidebar"], .stMarkdown, .stDivider { display: none !important; }
-        .invoice-container { background-color: white; padding: 0; overflow: visible; }
-        .invoice-paper { width: 100% !important; box-shadow: none !important; margin: 0 !important; }
+        .invoice-outer-wrapper { background-color: white; padding: 0; height: auto !important; }
+        .invoice-paper-letter { transform: none !important; width: 100% !important; box-shadow: none !important; margin: 0 !important; }
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 데이터 로직 (사장님 원본) ---
+# --- 데이터 관리 ---
 if 'db' not in st.session_state: st.session_state.db = []
 if 'selected_invoice' not in st.session_state: st.session_state.selected_invoice = None
 
@@ -65,14 +89,11 @@ def get_business_day(start_date, days_to_subtract):
         if current_date.weekday() < 5: days_to_subtract -= 1
     return current_date
 
-# --- 메인 헤더 ---
-st.markdown('<div style="background-color: #1a1c24; padding: 20px; border-radius: 10px; margin-bottom: 25px; border: 1px solid #30363d;">'
-            '<div style="font-size: 24px; font-weight: 800;">實 Skycad Lab Night Guard Manager</div>'
-            '<div style="font-size: 12px;">Designed By Heechul Jung</div></div>', unsafe_allow_html=True)
+# --- 첫 장 (사장님 원본 100%) ---
+st.markdown(f'<div class="header-container"><div style="font-size: 24px; font-weight: 800;">實 Skycad Lab Night Guard Manager</div><div style="font-size: 12px;">Designed By Heechul Jung</div></div>', unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["📝 케이스 등록", "📊 리스트 및 완료", "🔍 검색"])
 
-# --- Tab 1: 케이스 등록 (희철님 원본 로직 100% 복구) ---
 with tab1:
     st.markdown("### 📋 기본정보입력")
     c1, c2 = st.columns(2)
@@ -81,8 +102,8 @@ with tab1:
         patient = st.text_input("Patient(환자명)", placeholder="환자 성함")
         clinics = sorted(list(set(ref_data['Clinic'].tolist())))
         sel_clinic = st.selectbox("Clinic(병원명)", ["선택"] + clinics)
-        docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
-        sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + docs)
+        filtered_docs = ref_data[ref_data['Clinic'] == sel_clinic]['Doctor'].tolist() if sel_clinic != "선택" else []
+        sel_doctor = st.selectbox("Doctor(의사명)", ["선택"] + filtered_docs)
     with c2:
         is_3d = st.checkbox("3D Model", value=True)
         today = date.today()
@@ -103,7 +124,8 @@ with tab1:
         st.date_input("출고일 (Shipping Date)", ship_date)
 
     if st.button("💾 케이스 저장 (접수 완료)"):
-        if sel_clinic != "선택" and case_no:
+        if sel_clinic == "선택" or not case_no: st.error("필수 정보를 입력하세요.")
+        else:
             c_info = ref_data[ref_data['Clinic'] == sel_clinic].iloc[0]
             st.session_state.db.append({
                 "Case No": case_no, "Patient": patient, "Clinic": sel_clinic, 
@@ -113,24 +135,25 @@ with tab1:
             })
             st.success(f"{case_no}번 등록 완료!")
 
-# --- Tab 2: 리스트 및 인보이스 ---
 with tab2:
-    for i, row in enumerate(st.session_state.db):
-        c_info, c_btn = st.columns([4, 1.5])
-        with c_info: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
-        with c_btn:
-            if st.button("인보이스 보기", key=f"btn_{i}"):
-                st.session_state.selected_invoice = row
+    if not st.session_state.db: st.info("대기 중인 케이스가 없습니다.")
+    else:
+        for i, row in enumerate(st.session_state.db):
+            c_info, c_btn = st.columns([4, 1.5])
+            with c_info: st.write(f"**{row['Case No']}** | {row['Patient']} | {row['Clinic']}")
+            with c_btn:
+                if st.button("인보이스 보기", key=f"invbtn_{i}"):
+                    st.session_state.selected_invoice = row
+                    st.rerun()
 
     if st.session_state.selected_invoice:
         inv = st.session_state.selected_invoice
         st.divider()
-        # [핵심] 가로 스크롤 컨테이너 적용
         st.markdown(f"""
-        <div class="invoice-container">
-            <div class="invoice-paper">
+        <div class="invoice-outer-wrapper">
+            <div class="invoice-paper-letter">
                 <div style="display: flex; justify-content: space-between;">
-                    <div style="text-align: left;">
+                    <div>
                         <div style="font-size: 10px; font-weight: bold; color: #1a4e8a !important;">DENTAL TECHNOLOGY Ltd</div>
                         <div style="font-size: 65px; font-weight: 900; font-style: italic; color: #1a4e8a !important; line-height: 0.8; letter-spacing: -3px;">skycad</div>
                         <div style="margin-top: 15px; font-size: 13px;"><b>Skycad AB</b><br>205-7136 11 St NE<br>Calgary, AB T2E 4Y9<br>(403) 970-0600</div>
@@ -138,13 +161,13 @@ with tab2:
                     <div style="text-align: right;">
                         <div style="font-size: 32px; font-weight: bold; letter-spacing: 4px;">INVOICE</div>
                         <div style="font-size: 14px; font-weight: bold;">No. 162{inv['Case No'].replace('ET', '')}<br>{inv['Lab Done'].strftime('%m/%d/%Y')}</div>
-                        <div style="margin-top: 20px; text-align: left; font-size: 13px; border: 1.5px solid black; padding: 12px; width: 230px; display: inline-block; white-space: normal;">
+                        <div style="margin-top: 20px; text-align: left; font-size: 13px; border: 1.5px solid black; padding: 12px; width: 230px; display: inline-block;">
                             <b>Ship To:</b><br>{inv['Clinic']}<br>Dr. {inv['Doctor']}<br>{inv['Addr']}<br>{inv['City']}
                         </div>
                     </div>
                 </div>
                 <div style="margin: 50px 0 10px 0; font-size: 20px; border-bottom: 2.5px solid black; padding-bottom: 5px;"><b>Patient:</b> {str(inv['Patient']).upper()}</div>
-                <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
                     <tr style="border-bottom: 2px solid black; font-weight: bold;">
                         <td style="padding: 10px 0; text-decoration: underline;">Description</td>
                         <td style="padding: 10px 0; text-align: right; text-decoration: underline;">Amount</td>
@@ -157,8 +180,11 @@ with tab2:
                 <div style="border-top: 2px solid black; padding-top: 15px; display: flex; justify-content: space-between; font-weight: bold; font-size: 20px;">
                     <span>{inv['Case No']}</span><span>Total: $180.00</span>
                 </div>
-                <div style="margin-top: 100px; text-align: center;">
-                    <div style="font-size: 13px; font-weight: bold; text-decoration: underline; margin-bottom: 5px;">All dental products we offer are custom made in Canada.</div>
+                <div style="position: absolute; bottom: 50px; left: 45px; right: 45px; text-align: center;">
+                    <div style="font-size: 14px; font-weight: bold; text-decoration: underline; margin-bottom: 10px;">All dental products we offer are custom made in Canada.</div>
+                    <div style="font-size: 9px; line-height: 1.4; color: #444 !important;">
+                        Please ensure your monthly payment is made within 30 days of receiving your statement.
+                    </div>
                 </div>
             </div>
         </div>
